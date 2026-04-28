@@ -113,6 +113,7 @@ export default function Receipt({ open, onClose, transaction, items, storeSettin
       lines.push('\x1B\x61\x00'); // Left align
       for (const item of items) {
         lines.push(`${item.productName}\n`);
+        if (item.notes) lines.push(`  ${item.notes}\n`);
         lines.push(`  ${item.quantity} x Rp ${item.price.toLocaleString('id-ID')}  Rp ${item.subtotal.toLocaleString('id-ID')}\n`);
       }
       
@@ -183,6 +184,7 @@ export default function Receipt({ open, onClose, transaction, items, storeSettin
           {items.map((item, i) => (
             <div key={i} className="mb-1">
               <p className="text-[11px] font-medium">{item.productName}</p>
+              {item.notes && <p className="text-[9px] text-gray-500 italic">  {item.notes}</p>}
               <div className="flex justify-between text-[10px]">
                 <span>{item.quantity} x {rp(item.price)}</span>
                 <span>{rp(item.subtotal)}</span>
