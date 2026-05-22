@@ -1,5 +1,3 @@
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Supplier } from '@/lib/db';
 import { useState } from 'react';
 import { Truck, Plus, Edit2, Trash2, Phone, MapPin, Search } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -8,10 +6,25 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { toast } from 'sonner';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useAuth } from '@/hooks/use-auth';
 import LockedPage from '@/components/LockedPage';
+import {
+  useSuppliers,
+  useCreateSupplier,
+  useUpdateSupplier,
+  useDeleteSupplier,
+} from '@/hooks/use-suppliers';
+import type { Supplier } from '@/services/supplier.service';
 
 export default function SupplierPage() {
   const { can } = useAuth();
@@ -26,16 +39,20 @@ export default function SupplierPage() {
   const [address, setAddress] = useState('');
   const [notes, setNotes] = useState('');
 
-  const suppliers = useLiveQuery(() => db.suppliers.where('isDeleted').equals(0).toArray());
+  const { data: suppliers = [] } = useSuppliers();
+  const createSupplier = useCreateSupplier();
+  const updateSupplier = useUpdateSupplier();
+  const deleteSupplier = useDeleteSupplier();
 
   if (!can('manage_supplier')) {
     return <LockedPage title="Supplier" permissionLabel="Kelola Supplier" />;
   }
 
-  const filtered = suppliers?.filter(s =>
-    s.name.toLowerCase().includes(search.toLowerCase()) ||
-    s.phone.includes(search)
-  ) ?? [];
+  const filtered = suppliers.filter(
+    s =>
+      s.name.toLowerCase().includes(search.toLowerCase()) ||
+      (s.phone ?? '').includes(search)
+  );
 
   const openAdd = () => {
     setEditSupplier(null);
@@ -45,26 +62,39 @@ export default function SupplierPage() {
 
   const openEdit = (s: Supplier) => {
     setEditSupplier(s);
-    setName(s.name); setPhone(s.phone); setAddress(s.address); setNotes(s.notes);
+    setName(s.name);
+    setPhone(s.phone ?? '');
+    setAddress(s.address ?? '');
+    setNotes(s.notes ?? '');
     setDialogOpen(true);
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!name.trim()) return;
-    const data = { name: name.trim(), phone: phone.trim(), address: address.trim(), notes: notes.trim() };
+    const payload = {
+      name: name.trim(),
+      phone: phone.trim() || undefined,
+      address: address.trim() || undefined,
+      notes: notes.trim() || undefined,
+    };
+
     if (editSupplier?.id) {
-      await db.suppliers.update(editSupplier.id, data);
-      toast.success('Supplier diperbarui');
+      updateSupplier.mutate(
+        { id: editSupplier.id, payload },
+        { onSuccess: () => setDialogOpen(false) }
+      );
     } else {
-      await db.suppliers.add({ ...data, createdAt: new Date(), isDeleted: 0, deletedAt: null });
-      toast.success('Supplier ditambahkan');
+      createSupplier.mutate(payload, { onSuccess: () => setDialogOpen(false) });
     }
-    setDialogOpen(false);
   };
 
-  const handleDelete = async () => {
-    if (deleteId) { await db.suppliers.update(deleteId, { isDeleted: 1, deletedAt: new Date() }); setDeleteId(null); toast.success('Supplier dihapus'); }
+  const handleDelete = () => {
+    if (deleteId) {
+      deleteSupplier.mutate(deleteId, { onSuccess: () => setDeleteId(null) });
+    }
   };
+
+  const isSaving = createSupplier.isPending || updateSupplier.isPending;
 
   return (
     <div className="px-4 pt-6 pb-4 space-y-4">
@@ -80,7 +110,12 @@ export default function SupplierPage() {
 
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input placeholder="Cari supplier..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 h-10" />
+        <Input
+          placeholder="Cari supplier..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="pl-9 h-10"
+        />
       </div>
 
       <p className="text-xs text-muted-foreground">{filtered.length} supplier</p>
@@ -111,11 +146,27 @@ export default function SupplierPage() {
                         <MapPin className="w-3 h-3" /> {s.address}
                       </p>
                     )}
-                    {s.notes && <p className="text-xs text-muted-foreground mt-1 italic">{s.notes}</p>}
+                    {s.notes && (
+                      <p className="text-xs text-muted-foreground mt-1 italic">{s.notes}</p>
+                    )}
                   </div>
                   <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(s)}><Edit2 className="w-3.5 h-3.5" /></Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setDeleteId(s.id!)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => openEdit(s)}
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-destructive"
+                      onClick={() => setDeleteId(s.id)}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
                   </div>
                 </div>
               </CardContent>
@@ -126,13 +177,54 @@ export default function SupplierPage() {
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-[95vw] rounded-xl">
-          <DialogHeader><DialogTitle>{editSupplier ? 'Edit' : 'Tambah'} Supplier</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>{editSupplier ? 'Edit' : 'Tambah'} Supplier</DialogTitle>
+          </DialogHeader>
           <div className="space-y-4 mt-2">
-            <div className="space-y-1.5"><Label>Nama Supplier *</Label><Input value={name} onChange={e => setName(e.target.value)} placeholder="Contoh: PT Sumber Jaya" className="h-11" /></div>
-            <div className="space-y-1.5"><Label>Telepon</Label><Input value={phone} onChange={e => setPhone(e.target.value)} placeholder="08123456789" className="h-11" type="tel" /></div>
-            <div className="space-y-1.5"><Label>Alamat</Label><Input value={address} onChange={e => setAddress(e.target.value)} placeholder="Alamat supplier" className="h-11" /></div>
-            <div className="space-y-1.5"><Label>Catatan</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Catatan tambahan" rows={2} /></div>
-            <Button className="w-full h-11" onClick={handleSave} disabled={!name.trim()}>Simpan</Button>
+            <div className="space-y-1.5">
+              <Label>Nama Supplier *</Label>
+              <Input
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="Contoh: PT Sumber Jaya"
+                className="h-11"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Telepon</Label>
+              <Input
+                value={phone}
+                onChange={e => setPhone(e.target.value)}
+                placeholder="08123456789"
+                className="h-11"
+                type="tel"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Alamat</Label>
+              <Input
+                value={address}
+                onChange={e => setAddress(e.target.value)}
+                placeholder="Alamat supplier"
+                className="h-11"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Catatan</Label>
+              <Textarea
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                placeholder="Catatan tambahan"
+                rows={2}
+              />
+            </div>
+            <Button
+              className="w-full h-11"
+              onClick={handleSave}
+              disabled={!name.trim() || isSaving}
+            >
+              {isSaving ? 'Menyimpan...' : 'Simpan'}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -141,11 +233,18 @@ export default function SupplierPage() {
         <AlertDialogContent className="max-w-[90vw] rounded-xl">
           <AlertDialogHeader>
             <AlertDialogTitle>Hapus Supplier?</AlertDialogTitle>
-            <AlertDialogDescription>Data supplier yang dihapus tidak bisa dikembalikan.</AlertDialogDescription>
+            <AlertDialogDescription>
+              Data supplier yang dihapus tidak bisa dikembalikan.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Batal</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">Hapus</AlertDialogAction>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground"
+            >
+              Hapus
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
