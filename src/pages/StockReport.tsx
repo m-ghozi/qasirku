@@ -1,81 +1,59 @@
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '@/lib/db';
 import { useState } from 'react';
 import { Package, ArrowDownToLine, ArrowUpFromLine, TrendingUp, AlertTriangle, Warehouse, BarChart3 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
-import { format, subDays, startOfDay } from 'date-fns';
-import { id } from 'date-fns/locale';
 import { useAuth } from '@/hooks/use-auth';
 import LockedPage from '@/components/LockedPage';
+import { useStockReport } from '@/hooks/use-stock';
 
 export default function StockReport() {
   const { can } = useAuth();
   const [period, setPeriod] = useState<'7' | '30'>('7');
-  const days = Number(period);
-  const since = startOfDay(subDays(new Date(), days));
 
-  const products = useLiveQuery(() => db.products.toArray());
-  const stockIns = useLiveQuery(async () => db.stockIns.where('date').aboveOrEqual(since).toArray(), [days]);
-  const stockOuts = useLiveQuery(async () => db.stockOuts.where('date').aboveOrEqual(since).toArray(), [days]);
+  const { data: report } = useStockReport(period);
 
   if (!can('view_reports')) {
     return <LockedPage title="Laporan Stok" permissionLabel="Lihat Laporan & Profit" />;
   }
 
-  const totalStockIn = stockIns?.reduce((s, si) => s + si.quantity, 0) ?? 0;
-  const totalStockInValue = stockIns?.reduce((s, si) => s + si.totalPrice, 0) ?? 0;
-  const totalStockOut = stockOuts?.reduce((s, so) => s + so.quantity, 0) ?? 0;
+  // ── Destructure report data ───────────────────────────────────────────────
 
-  const stockOutByReason = stockOuts?.reduce((acc, so) => {
-    acc[so.reason] = (acc[so.reason] || 0) + so.quantity;
-    return acc;
-  }, {} as Record<string, number>) ?? {};
+  const summary = report?.summary ?? {
+    totalStockIn: 0,
+    totalStockOut: 0,
+    totalStockInValue: 0,
+    avgBuyPrice: 0,
+    currentStock: 0,
+  };
 
-  const currentStock = products?.reduce((s, p) => s + p.stock, 0) ?? 0;
-  const lowStockProducts = products?.filter(p => p.stock > 0 && p.stock <= 5) ?? [];
-  const outOfStockProducts = products?.filter(p => p.stock === 0) ?? [];
+  const stockOutByReason = report?.stockOutByReason ?? [];
+  const lowStockProducts = report?.alerts.lowStock ?? [];
+  const outOfStockProducts = report?.alerts.outOfStock ?? [];
 
-  const getProductName = (pid: number) => products?.find(p => p.id === pid)?.name ?? '-';
+  // ── Chart data ────────────────────────────────────────────────────────────
 
   const chartData = (() => {
+    if (!report?.chart) return [];
+
     const map: Record<string, { stockIn: number; stockOut: number }> = {};
-    for (let i = days - 1; i >= 0; i--) {
-      const d = format(subDays(new Date(), i), 'dd/MM');
-      map[d] = { stockIn: 0, stockOut: 0 };
-    }
-    stockIns?.forEach(si => {
-      const d = format(new Date(si.date), 'dd/MM');
-      if (map[d]) map[d].stockIn += si.quantity;
+
+    report.chart.stockIn.forEach(({ date, quantity }) => {
+      if (!map[date]) map[date] = { stockIn: 0, stockOut: 0 };
+      map[date].stockIn += quantity;
     });
-    stockOuts?.forEach(so => {
-      const d = format(new Date(so.date), 'dd/MM');
-      if (map[d]) map[d].stockOut += so.quantity;
+
+    report.chart.stockOut.forEach(({ date, quantity }) => {
+      if (!map[date]) map[date] = { stockIn: 0, stockOut: 0 };
+      map[date].stockOut += quantity;
     });
-    return Object.entries(map).map(([date, data]) => ({ date, ...data }));
+
+    return Object.entries(map)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, data]) => ({ date, ...data }));
   })();
 
-  const stockMovementData = (() => {
-    const map: Record<string, number> = {};
-    let cumulative = 0;
-    for (let i = days - 1; i >= 0; i--) {
-      const d = format(subDays(new Date(), i), 'dd/MM');
-      map[d] = 0;
-    }
-    stockIns?.forEach(si => {
-      const d = format(new Date(si.date), 'dd/MM');
-      if (map[d] !== undefined) map[d] += si.quantity;
-    });
-    stockOuts?.forEach(so => {
-      const d = format(new Date(so.date), 'dd/MM');
-      if (map[d] !== undefined) map[d] -= so.quantity;
-    });
-    return Object.entries(map).map(([date, movement]) => {
-      cumulative += movement;
-      return { date, stock: cumulative };
-    });
-  })();
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
   const rp = (n: number) => `Rp ${n.toLocaleString('id-ID')}`;
 
@@ -107,21 +85,21 @@ export default function StockReport() {
         <Card className="border-0 shadow-sm">
           <CardContent className="p-3 text-center">
             <ArrowDownToLine className="w-4 h-4 mx-auto text-success mb-1" />
-            <p className="text-lg font-bold">{totalStockIn}</p>
+            <p className="text-lg font-bold">{summary.totalStockIn}</p>
             <p className="text-[10px] text-muted-foreground">Masuk</p>
           </CardContent>
         </Card>
         <Card className="border-0 shadow-sm">
           <CardContent className="p-3 text-center">
             <ArrowUpFromLine className="w-4 h-4 mx-auto text-destructive mb-1" />
-            <p className="text-lg font-bold">{totalStockOut}</p>
+            <p className="text-lg font-bold">{summary.totalStockOut}</p>
             <p className="text-[10px] text-muted-foreground">Keluar</p>
           </CardContent>
         </Card>
         <Card className="border-0 shadow-sm">
           <CardContent className="p-3 text-center">
             <Package className="w-4 h-4 mx-auto text-primary mb-1" />
-            <p className="text-lg font-bold">{currentStock}</p>
+            <p className="text-lg font-bold">{summary.currentStock}</p>
             <p className="text-[10px] text-muted-foreground">Tersedia</p>
           </CardContent>
         </Card>
@@ -138,10 +116,10 @@ export default function StockReport() {
         <CardContent>
           <div className="flex justify-between items-center">
             <span className="text-sm text-muted-foreground">Total Pembelian</span>
-            <span className="text-lg font-bold text-success">{rp(totalStockInValue)}</span>
+            <span className="text-lg font-bold text-success">{rp(summary.totalStockInValue)}</span>
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            Rata-rata: {totalStockIn > 0 ? rp(totalStockInValue / totalStockIn) : rp(0)} per unit
+            Rata-rata: {rp(summary.avgBuyPrice)} per unit
           </p>
         </CardContent>
       </Card>
@@ -159,8 +137,8 @@ export default function StockReport() {
             <BarChart data={chartData}>
               <XAxis dataKey="date" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
               <YAxis hide />
-              <Tooltip 
-                formatter={(v: number, name: string) => [v, name === 'stockIn' ? 'Masuk' : 'Keluar']} 
+              <Tooltip
+                formatter={(v: number, name: string) => [v, name === 'stockIn' ? 'Masuk' : 'Keluar']}
                 contentStyle={{ fontSize: 12, borderRadius: 8 }}
                 labelStyle={{ fontSize: 10 }}
               />
@@ -172,7 +150,7 @@ export default function StockReport() {
       </Card>
 
       {/* Stock Out by Reason */}
-      {Object.keys(stockOutByReason).length > 0 && (
+      {stockOutByReason.length > 0 && (
         <Card className="border-0 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-1.5">
@@ -181,10 +159,10 @@ export default function StockReport() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {Object.entries(stockOutByReason).map(([reason, qty]) => (
+            {stockOutByReason.map(({ reason, quantity }) => (
               <div key={reason} className="flex items-center justify-between">
                 <span className="text-sm">{reasonLabels[reason] || reason}</span>
-                <span className="font-semibold text-destructive">{qty} unit</span>
+                <span className="font-semibold text-destructive">{quantity} unit</span>
               </div>
             ))}
           </CardContent>
@@ -208,7 +186,9 @@ export default function StockReport() {
               </div>
             ))}
             {lowStockProducts.length > 5 && (
-              <p className="text-xs text-muted-foreground text-center">+{lowStockProducts.length - 5} produk lainnya</p>
+              <p className="text-xs text-muted-foreground text-center">
+                +{lowStockProducts.length - 5} produk lainnya
+              </p>
             )}
           </CardContent>
         </Card>
@@ -231,7 +211,9 @@ export default function StockReport() {
               </div>
             ))}
             {outOfStockProducts.length > 5 && (
-              <p className="text-xs text-muted-foreground text-center">+{outOfStockProducts.length - 5} produk lainnya</p>
+              <p className="text-xs text-muted-foreground text-center">
+                +{outOfStockProducts.length - 5} produk lainnya
+              </p>
             )}
           </CardContent>
         </Card>

@@ -11,20 +11,30 @@ import { PRODUCT_KEY } from './use-products';
 
 export const STOCK_IN_KEY = ['stocks', 'in'] as const;
 export const STOCK_OUT_KEY = ['stocks', 'out'] as const;
+export const STOCK_REPORT_KEY = ['stocks', 'report'] as const;
 
 // ── Queries ───────────────────────────────────────────────────────────────────
 
-export function useStockIn() {
+export function useStockIn(from?: string | number) {
+  const fromParam = from !== undefined ? String(from) : undefined;
   return useQuery({
-    queryKey: STOCK_IN_KEY,
-    queryFn: stockService.getAllStockIn,
+    queryKey: fromParam ? [...STOCK_IN_KEY, fromParam] : STOCK_IN_KEY,
+    queryFn: () => stockService.getAllStockIn(fromParam),
   });
 }
 
-export function useStockOut() {
+export function useStockOut(from?: string | number) {
+  const fromParam = from !== undefined ? String(from) : undefined;
   return useQuery({
-    queryKey: STOCK_OUT_KEY,
-    queryFn: stockService.getAllStockOut,
+    queryKey: fromParam ? [...STOCK_OUT_KEY, fromParam] : STOCK_OUT_KEY,
+    queryFn: () => stockService.getAllStockOut(fromParam),
+  });
+}
+
+export function useStockReport(period: '7' | '30') {
+  return useQuery({
+    queryKey: [...STOCK_REPORT_KEY, period],
+    queryFn: () => stockService.getReport(period),
   });
 }
 
@@ -35,8 +45,8 @@ export function useCreateStockIn() {
   return useMutation({
     mutationFn: (payload: CreateStockInPayload) => stockService.createStockIn(payload),
     onSuccess: () => {
-      // Stok produk berubah di backend, invalidasi keduanya
       qc.invalidateQueries({ queryKey: STOCK_IN_KEY });
+      qc.invalidateQueries({ queryKey: STOCK_REPORT_KEY });
       qc.invalidateQueries({ queryKey: PRODUCT_KEY });
       toast.success('Stok masuk berhasil dicatat');
     },
@@ -52,6 +62,7 @@ export function useCreateStockOut() {
     mutationFn: (payload: CreateStockOutPayload) => stockService.createStockOut(payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: STOCK_OUT_KEY });
+      qc.invalidateQueries({ queryKey: STOCK_REPORT_KEY });
       qc.invalidateQueries({ queryKey: PRODUCT_KEY });
       toast.success('Stok keluar berhasil dicatat');
     },

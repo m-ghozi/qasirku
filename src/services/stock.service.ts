@@ -12,7 +12,6 @@ export interface StockIn {
   date: string;
   notes?: string;
   createdById?: number;
-  // Relasi yang di-include backend
   product?: { id: number; name: string; unit: string };
   supplier?: { id: number; name: string };
   createdBy?: { id: number; name: string };
@@ -26,9 +25,27 @@ export interface StockOut {
   date: string;
   notes?: string;
   createdById?: number;
-  // Relasi yang di-include backend
   product?: { id: number; name: string; unit: string };
   createdBy?: { id: number; name: string };
+}
+
+export interface StockReport {
+  summary: {
+    totalStockIn: number;
+    totalStockOut: number;
+    totalStockInValue: number;
+    avgBuyPrice: number;
+    currentStock: number;
+  };
+  stockOutByReason: { reason: string; quantity: number }[];
+  chart: {
+    stockIn: { date: string; quantity: number }[];
+    stockOut: { date: string; quantity: number }[];
+  };
+  alerts: {
+    lowStock: { id: number; name: string; stock: number; unit: string }[];
+    outOfStock: { id: number; name: string; stock: number; unit: string }[];
+  };
 }
 
 export interface CreateStockInPayload {
@@ -49,9 +66,8 @@ export interface CreateStockOutPayload {
 // ── Service ───────────────────────────────────────────────────────────────────
 
 export const stockService = {
-  // Stock In
-  getAllStockIn: async (): Promise<StockIn[]> => {
-    const { data } = await api.get('/stocks/in');
+  getAllStockIn: async (from?: string): Promise<StockIn[]> => {
+    const { data } = await api.get('/stocks/in', { params: from ? { from } : undefined });
     return data.data;
   },
 
@@ -60,14 +76,18 @@ export const stockService = {
     return data.data;
   },
 
-  // Stock Out
-  getAllStockOut: async (): Promise<StockOut[]> => {
-    const { data } = await api.get('/stocks/out');
+  getAllStockOut: async (from?: string): Promise<StockOut[]> => {
+    const { data } = await api.get('/stocks/out', { params: from ? { from } : undefined });
     return data.data;
   },
 
   createStockOut: async (payload: CreateStockOutPayload): Promise<StockOut> => {
     const { data } = await api.post('/stocks/out', payload);
+    return data.data;
+  },
+
+  getReport: async (period: string): Promise<StockReport> => {
+    const { data } = await api.get('/stocks/report', { params: { period } });
     return data.data;
   },
 };

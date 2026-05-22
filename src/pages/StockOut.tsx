@@ -1,5 +1,3 @@
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '@/lib/db';
 import { useState } from 'react';
 import { ArrowUpFromLine, Plus, ChevronLeft } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -14,11 +12,13 @@ import { id } from 'date-fns/locale';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/use-auth';
 import LockedPage from '@/components/LockedPage';
+import { useStockOut, useCreateStockOut } from '@/hooks/use-stock';
+import { useProducts } from '@/hooks/use-products';
 
 const REASONS = ['Rusak', 'Hilang', 'Kadaluarsa', 'Retur ke Supplier', 'Pemakaian Sendiri', 'Lainnya'];
 
 export default function StockOutPage() {
-  const { currentUser, can } = useAuth();
+  const { can } = useAuth();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [productId, setProductId] = useState('');
@@ -26,51 +26,41 @@ export default function StockOutPage() {
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
 
-  const stockOuts = useLiveQuery(() => db.stockOuts.orderBy('date').reverse().toArray());
-  const products = useLiveQuery(() => db.products.where('isDeleted').equals(0).toArray());
+  const { data: stockOuts = [] } = useStockOut();
+  const { data: products = [] } = useProducts();
+  const createStockOut = useCreateStockOut();
 
   if (!can('manage_stock_inout')) {
     return <LockedPage title="Stock Out" permissionLabel="Stock In / Stock Out" />;
   }
 
-  const getProductName = (pid: number) => products?.find(p => p.id === pid)?.name ?? '-';
-  const selectedProduct = products?.find(p => p.id === Number(productId));
+  const selectedProduct = products.find(p => p.id === Number(productId));
 
   const openAdd = () => {
     setProductId(''); setQuantity(''); setReason(''); setNotes('');
     setDialogOpen(true);
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     const qty = Number(quantity);
     if (!productId || qty <= 0 || !reason) {
       toast.error('Lengkapi semua field');
       return;
     }
-
-    const product = products?.find(p => p.id === Number(productId));
-    if (!product) return;
-    if (qty > product.stock) {
+    if (selectedProduct && qty > selectedProduct.stock) {
       toast.error('Jumlah melebihi stok yang tersedia');
       return;
     }
 
-    await db.stockOuts.add({
-      productId: Number(productId),
-      quantity: qty,
-      reason,
-      date: new Date(),
-      notes: notes.trim(),
-      createdBy: currentUser?.id,
-    });
-
-    await db.products.update(product.id!, {
-      stock: product.stock - qty,
-      updatedAt: new Date(),
-    });
-
-    toast.success(`Stok ${product.name} berkurang ${qty}`);
-    setDialogOpen(false);
+    createStockOut.mutate(
+      {
+        productId: Number(productId),
+        quantity: qty,
+        reason,
+        notes: notes.trim() || undefined,
+      },
+      { onSuccess: () => setDialogOpen(false) }
+    );
   };
 
   return (
@@ -78,7 +68,9 @@ export default function StockOutPage() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Link to="/settings">
-            <Button variant="ghost" size="icon" className="h-8 w-8"><ChevronLeft className="w-4 h-4" /></Button>
+            <Button variant="ghost" size="icon" className="h-8 w-8">
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
           </Link>
           <h1 className="text-xl font-bold flex items-center gap-2">
             <ArrowUpFromLine className="w-5 h-5 text-destructive" />
@@ -90,9 +82,9 @@ export default function StockOutPage() {
         </Button>
       </div>
 
-      <p className="text-xs text-muted-foreground">{stockOuts?.length ?? 0} catatan</p>
+      <p className="text-xs text-muted-foreground">{stockOuts.length} catatan</p>
 
-      {(!stockOuts || stockOuts.length === 0) ? (
+      {stockOuts.length === 0 ? (
         <div className="text-center py-12">
           <ArrowUpFromLine className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
           <p className="text-sm text-muted-foreground">Belum ada data stock out</p>
@@ -104,14 +96,20 @@ export default function StockOutPage() {
               <CardContent className="p-3">
                 <div className="flex items-start justify-between">
                   <div>
-                    <h3 className="text-sm font-semibold">{getProductName(so.productId)}</h3>
+                    <h3 className="text-sm font-semibold">{so.product?.name ?? '-'}</h3>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs font-medium bg-destructive/10 text-destructive px-2 py-0.5 rounded">-{so.quantity}</span>
+                      <span className="text-xs font-medium bg-destructive/10 text-destructive px-2 py-0.5 rounded">
+                        -{so.quantity}
+                      </span>
                       <span className="text-xs text-muted-foreground">{so.reason}</span>
                     </div>
-                    {so.notes && <p className="text-xs text-muted-foreground mt-1 italic">{so.notes}</p>}
+                    {so.notes && (
+                      <p className="text-xs text-muted-foreground mt-1 italic">{so.notes}</p>
+                    )}
                   </div>
-                  <p className="text-xs text-muted-foreground">{format(new Date(so.date), 'dd MMM yy', { locale: id })}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {format(new Date(so.date), 'dd MMM yy', { locale: id })}
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -127,30 +125,63 @@ export default function StockOutPage() {
               <Label>Produk *</Label>
               <Select value={productId} onValueChange={setProductId}>
                 <SelectTrigger className="h-11"><SelectValue placeholder="Pilih produk" /></SelectTrigger>
-                <SelectContent>{products?.filter(p => p.stock > 0).map(p => <SelectItem key={p.id} value={p.id!.toString()}>{p.name} (stok: {p.stock})</SelectItem>)}</SelectContent>
+                <SelectContent>
+                  {products.filter(p => p.stock > 0).map(p => (
+                    <SelectItem key={p.id} value={p.id.toString()}>
+                      {p.name} (stok: {p.stock})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Jumlah *</Label>
-                <Input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} placeholder="1" className="h-11" max={selectedProduct?.stock} />
+                <Input
+                  type="number"
+                  value={quantity}
+                  onChange={e => setQuantity(e.target.value)}
+                  placeholder="1"
+                  className="h-11"
+                  max={selectedProduct?.stock}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Alasan *</Label>
                 <Select value={reason} onValueChange={setReason}>
                   <SelectTrigger className="h-11"><SelectValue placeholder="Pilih" /></SelectTrigger>
-                  <SelectContent>{REASONS.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
+                  <SelectContent>
+                    {REASONS.map(r => (
+                      <SelectItem key={r} value={r}>{r}</SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               </div>
             </div>
             {selectedProduct && quantity && (
               <div className="bg-muted/50 p-3 rounded-xl text-sm">
                 <span className="text-muted-foreground">Stok setelah: </span>
-                <span className="font-bold">{selectedProduct.stock - Number(quantity)} {selectedProduct.unit}</span>
+                <span className="font-bold">
+                  {selectedProduct.stock - Number(quantity)} {selectedProduct.unit}
+                </span>
               </div>
             )}
-            <div className="space-y-1.5"><Label>Catatan</Label><Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Opsional" className="h-11" /></div>
-            <Button className="w-full h-12 text-base font-semibold" onClick={handleSave}>Simpan Stock Out</Button>
+            <div className="space-y-1.5">
+              <Label>Catatan</Label>
+              <Input
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                placeholder="Opsional"
+                className="h-11"
+              />
+            </div>
+            <Button
+              className="w-full h-12 text-base font-semibold"
+              onClick={handleSave}
+              disabled={createStockOut.isPending}
+            >
+              {createStockOut.isPending ? 'Menyimpan...' : 'Simpan Stock Out'}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
