@@ -126,6 +126,7 @@ export default function Pengaturan() {
   const [storeName, setStoreName] = useState('');
   const [storeAddr, setStoreAddr] = useState('');
   const [storePhone, setStorePhone] = useState('');
+  const [storeFooter, setStoreFooter] = useState('');
   const logoInputRef = useRef<HTMLInputElement>(null);
 
   // Category
@@ -142,6 +143,7 @@ export default function Pengaturan() {
     setStoreName(storeSetting?.storeName ?? '');
     setStoreAddr(storeSetting?.address ?? '');
     setStorePhone(storeSetting?.phone ?? '');
+    setStoreFooter(storeSetting?.receiptFooter ?? '');
     setStoreDialog(true);
   };
 
@@ -151,6 +153,7 @@ export default function Pengaturan() {
         storeName: storeName.trim(),
         address: storeAddr.trim(),
         phone: storePhone.trim(),
+        receiptFooter: storeFooter.trim(),
       },
       {
         onSuccess: () => setStoreDialog(false),
@@ -562,6 +565,10 @@ export default function Pengaturan() {
             <div className="space-y-1.5">
               <Label>Telepon</Label>
               <Input value={storePhone} onChange={e => setStorePhone(e.target.value)} className="h-11" type="tel" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Receipt Footer</Label>
+              <Input value={storeFooter} onChange={e => setStoreFooter(e.target.value)} className="h-11" />
             </div>
             <Button
               className="w-full h-11"

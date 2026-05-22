@@ -1,6 +1,4 @@
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Product, type Category } from '@/lib/db';
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { Plus, Search, Edit2, Trash2, Package as PackageIcon, Camera, X, Copy } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,13 +9,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { compressImage } from '@/lib/image-utils';
-import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
+import { useProducts, useCreateProduct, useUpdateProduct, useDeleteProduct } from '@/hooks/use-products';
+import { useCategories } from '@/hooks/use-categories';
+import { useUnits } from '@/hooks/use-units';
+import type { Product } from '@/services/product.service';
 
 export default function Produk() {
-  const { currentUser, can } = useAuth();
+  const { can } = useAuth();
   const canManage = can('manage_products');
 
   const [search, setSearch] = useState('');
@@ -33,24 +35,34 @@ export default function Produk() {
   const [price, setPrice] = useState('');
   const [hpp, setHpp] = useState('');
   const [stock, setStock] = useState('');
-  const [unit, setUnit] = useState('pcs');
+  const [unit, setUnit] = useState('');
   const [barcode, setBarcode] = useState('');
   const [description, setDescription] = useState('');
   const [photo, setPhoto] = useState<string | undefined>(undefined);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const products = useLiveQuery(() => db.products.where('isDeleted').equals(0).toArray());
-  const categories = useLiveQuery(() => db.categories.where('isDeleted').equals(0).toArray());
-  const units = useLiveQuery(() => db.units.where('isDeleted').equals(0).toArray());
+  const { data: products = [], isLoading: loadingProducts } = useProducts();
+  const { data: categories = [] } = useCategories();
+  const { data: units = [] } = useUnits();
 
-  // Compose dropdown options: active master units + current product's unit if it has been deleted/renamed
-  const unitOptions = (() => {
-    const names = (units ?? []).map(u => u.name);
-    if (unit && !names.includes(unit)) names.push(unit);
+  const createProduct = useCreateProduct();
+  const updateProduct = useUpdateProduct();
+  const deleteProduct = useDeleteProduct();
+
+  // Default unit dari master, fallback ke 'pcs'
+  const defaultUnit = useMemo(
+    () => units.find((u: { isDefault: boolean }) => u.isDefault)?.name ?? 'pcs',
+    [units],
+  );
+
+  // Dropdown unit: gabung master aktif + unit produk saat ini jika sudah dihapus/diganti
+  const unitOptions = useMemo(() => {
+    const names = units.map((u: { name: string }) => u.name);
+    if (unit && !names.includes(unit)) return [...names, unit];
     return names;
-  })();
+  }, [units, unit]);
 
-  const filtered = products?.filter(p => {
+  const filtered = products.filter(p => {
     const q = search.toLowerCase();
     const matchSearch =
       p.name.toLowerCase().includes(q) ||
@@ -58,93 +70,90 @@ export default function Produk() {
       (p.description?.toLowerCase().includes(q) ?? false);
     const matchCategory = filterCategory === 'all' || p.categoryId === Number(filterCategory);
     return matchSearch && matchCategory;
-  }) ?? [];
+  });
 
-  const getCategoryName = (catId: number) => categories?.find(c => c.id === catId)?.name ?? '-';
-  const getCategoryColor = (catId: number) => categories?.find(c => c.id === catId)?.color ?? '#999';
+  const getCategoryName = (catId: number) =>
+    categories.find((c: { id: number; name: string }) => c.id === catId)?.name ?? '-';
+  const getCategoryColor = (catId: number) =>
+    categories.find((c: { id: number; color: string }) => c.id === catId)?.color ?? '#999';
 
   const openAdd = () => {
     setEditProduct(null);
-    setName(''); setSku(''); setCategoryId(categories?.[0]?.id?.toString() ?? ''); setPrice(''); setHpp(''); setStock(''); setUnit('pcs'); setBarcode(''); setDescription(''); setPhoto(undefined);
+    setName('');
+    setSku('');
+    setCategoryId(categories?.[0]?.id?.toString() ?? '');
+    setPrice('');
+    setHpp('');
+    setStock('');
+    setUnit(defaultUnit);
+    setBarcode('');
+    setDescription('');
+    setPhoto(undefined);
     setDialogOpen(true);
   };
 
   const openEdit = (p: Product) => {
     setEditProduct(p);
-    setName(p.name); setSku(p.sku); setCategoryId(p.categoryId.toString()); setPrice(p.price.toString()); setHpp(p.hpp.toString()); setStock(p.stock.toString()); setUnit(p.unit); setBarcode(p.barcode ?? ''); setDescription(p.description ?? ''); setPhoto(p.photo);
+    setName(p.name);
+    setSku(p.sku);
+    setCategoryId(p.categoryId.toString());
+    setPrice(p.price.toString());
+    setHpp(p.hpp.toString());
+    setStock(p.stock.toString());
+    setUnit(p.unit);
+    setBarcode(p.barcode ?? '');
+    setDescription(p.description ?? '');
+    setPhoto(p.photo);
     setDialogOpen(true);
   };
 
   const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      toast.error('File harus berupa gambar');
-      return;
-    }
+    if (!file.type.startsWith('image/')) return;
     try {
       const compressed = await compressImage(file);
       setPhoto(compressed);
     } catch {
-      toast.error('Gagal memproses gambar');
+      // handled by compressImage
     }
-    // Reset input so same file can be selected again
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!name.trim() || !categoryId || !sku.trim()) return;
 
-    // Check SKU uniqueness
-    const existing = await db.products
-      .where('sku')
-      .equals(sku.trim())
-      .filter(p => p.isDeleted === 0)
-      .first();
-    if (existing && existing.id !== editProduct?.id) {
-      toast.error(`SKU "${sku.trim()}" sudah digunakan oleh produk "${existing.name}"`);
-      return;
-    }
-
-    const data = {
+    const payload = {
       name: name.trim(),
       sku: sku.trim(),
       categoryId: Number(categoryId),
       price: Number(price) || 0,
       hpp: Number(hpp) || 0,
-      stock: Number(stock) || 0,
-      unit: unit.trim() || 'pcs',
+      // Stok hanya dikirim saat tambah produk baru
+      ...(!editProduct && { stock: Number(stock) || 0 }),
+      unit: unit.trim() || defaultUnit,
       description: description.trim() || undefined,
       barcode: barcode.trim() || undefined,
       photo: photo || undefined,
-      updatedAt: new Date(),
-      updatedBy: currentUser?.id,
     };
 
     if (editProduct?.id) {
-      await db.products.update(editProduct.id, data);
+      updateProduct.mutate(
+        { id: editProduct.id, payload },
+        { onSuccess: () => setDialogOpen(false) },
+      );
     } else {
-      await db.products.add({
-        ...data,
-        createdAt: new Date(),
-        createdBy: currentUser?.id,
-        isDeleted: 0,
-        deletedAt: null,
-      } as Product);
+      createProduct.mutate(payload, { onSuccess: () => setDialogOpen(false) });
     }
-    setDialogOpen(false);
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (deleteId) {
-      await db.products.update(deleteId, {
-        isDeleted: 1,
-        deletedAt: new Date(),
-        updatedBy: currentUser?.id,
-      });
-      setDeleteId(null);
+      deleteProduct.mutate(deleteId, { onSuccess: () => setDeleteId(null) });
     }
   };
+
+  const isSaving = createProduct.isPending || updateProduct.isPending;
 
   return (
     <div className="px-4 pt-6 pb-4 space-y-4">
@@ -179,8 +188,10 @@ export default function Produk() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Semua</SelectItem>
-            {categories?.map(c => (
-              <SelectItem key={c.id} value={c.id!.toString()}>{c.icon} {c.name}</SelectItem>
+            {categories.map((c: { id: number; name: string; icon: string }) => (
+              <SelectItem key={c.id} value={c.id.toString()}>
+                {c.icon} {c.name}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -189,8 +200,25 @@ export default function Produk() {
       {/* Product count */}
       <p className="text-xs text-muted-foreground">{filtered.length} produk ditemukan</p>
 
-      {/* Product List */}
-      {filtered.length === 0 ? (
+      {/* Loading skeleton */}
+      {loadingProducts ? (
+        <div className="space-y-2">
+          {[...Array(4)].map((_, i) => (
+            <Card key={i} className="border-0 shadow-sm">
+              <CardContent className="p-3">
+                <div className="flex items-start gap-3">
+                  <Skeleton className="w-12 h-12 rounded-lg shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-4 w-1/2" />
+                    <Skeleton className="h-3 w-1/3" />
+                    <Skeleton className="h-3 w-1/4" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="text-center py-12">
           <PackageIcon className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
           <p className="text-sm text-muted-foreground">Belum ada produk</p>
@@ -217,7 +245,14 @@ export default function Produk() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <h3 className="text-sm font-semibold truncate">{p.name}</h3>
-                      <Badge variant="outline" className="text-[10px] shrink-0" style={{ borderColor: getCategoryColor(p.categoryId), color: getCategoryColor(p.categoryId) }}>
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] shrink-0"
+                        style={{
+                          borderColor: getCategoryColor(p.categoryId),
+                          color: getCategoryColor(p.categoryId),
+                        }}
+                      >
                         {getCategoryName(p.categoryId)}
                       </Badge>
                     </div>
@@ -228,26 +263,47 @@ export default function Produk() {
                       </p>
                     )}
                     <div className="flex items-center gap-3 mt-1.5">
-                      <span className="text-sm font-bold text-primary">Rp {p.price.toLocaleString('id-ID')}</span>
-                      <span className="text-xs text-muted-foreground">HPP: Rp {p.hpp.toLocaleString('id-ID')}</span>
+                      <span className="text-sm font-bold text-primary">
+                        Rp {Number(p.price).toLocaleString('id-ID')}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        HPP: Rp {Number(p.hpp).toLocaleString('id-ID')}
+                      </span>
                     </div>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className={cn('text-xs font-medium px-1.5 py-0.5 rounded', p.stock <= 5 ? 'bg-destructive/10 text-destructive' : 'bg-success/10 text-success')}>
+                      <span
+                        className={cn(
+                          'text-xs font-medium px-1.5 py-0.5 rounded',
+                          p.stock <= 5
+                            ? 'bg-destructive/10 text-destructive'
+                            : 'bg-success/10 text-success',
+                        )}
+                      >
                         Stok: {p.stock} {p.unit}
                       </span>
                     </div>
                   </div>
                   <div className="flex flex-col gap-1">
-                    {canManage ? (
+                    {canManage && (
                       <>
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(p)}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => openEdit(p)}
+                        >
                           <Edit2 className="w-3.5 h-3.5" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setDeleteId(p.id!)}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive"
+                          onClick={() => setDeleteId(p.id!)}
+                        >
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       </>
-                    ) : null}
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -313,20 +369,34 @@ export default function Produk() {
 
             <div className="space-y-1.5">
               <Label>Nama Produk *</Label>
-              <Input value={name} onChange={e => setName(e.target.value)} placeholder="Contoh: Nasi Goreng" className="h-11" />
+              <Input
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="Contoh: Nasi Goreng"
+                className="h-11"
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>SKU *</Label>
-                <Input value={sku} onChange={e => setSku(e.target.value)} placeholder="Wajib diisi, contoh: NG001" className="h-11" />
+                <Input
+                  value={sku}
+                  onChange={e => setSku(e.target.value)}
+                  placeholder="Wajib diisi, contoh: NG001"
+                  className="h-11"
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Kategori *</Label>
                 <Select value={categoryId} onValueChange={setCategoryId}>
-                  <SelectTrigger className="h-11"><SelectValue placeholder="Pilih" /></SelectTrigger>
+                  <SelectTrigger className="h-11">
+                    <SelectValue placeholder="Pilih" />
+                  </SelectTrigger>
                   <SelectContent>
-                    {categories?.map(c => (
-                      <SelectItem key={c.id} value={c.id!.toString()}>{c.icon} {c.name}</SelectItem>
+                    {categories.map((c: { id: number; name: string; icon: string }) => (
+                      <SelectItem key={c.id} value={c.id.toString()}>
+                        {c.icon} {c.name}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -335,28 +405,58 @@ export default function Produk() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Harga Jual *</Label>
-                <Input type="number" value={price} onChange={e => setPrice(e.target.value)} placeholder="15000" className="h-11" />
+                <Input
+                  type="number"
+                  value={price}
+                  onChange={e => setPrice(e.target.value)}
+                  placeholder="15000"
+                  className="h-11"
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>HPP</Label>
-                <Input type="number" value={hpp} onChange={e => setHpp(e.target.value)} placeholder="10000" className="h-11" />
+                <Input
+                  type="number"
+                  value={hpp}
+                  onChange={e => setHpp(e.target.value)}
+                  placeholder="10000"
+                  className="h-11"
+                />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Stok Awal</Label>
-                <Input type="number" value={stock} onChange={e => setStock(e.target.value)} placeholder="0" className="h-11" />
+                <Label>
+                  Stok Awal
+                  {editProduct && (
+                    <span className="ml-1 text-[10px] text-muted-foreground font-normal">
+                      (ubah lewat Stock In/Out)
+                    </span>
+                  )}
+                </Label>
+                <Input
+                  type="number"
+                  value={stock}
+                  onChange={e => setStock(e.target.value)}
+                  placeholder="0"
+                  className="h-11"
+                  disabled={!!editProduct}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Satuan</Label>
                 <Select value={unit} onValueChange={setUnit}>
-                  <SelectTrigger className="h-11"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-11">
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     {unitOptions.length === 0 ? (
                       <SelectItem value="pcs">pcs</SelectItem>
                     ) : (
-                      unitOptions.map(u => (
-                        <SelectItem key={u} value={u}>{u}</SelectItem>
+                      unitOptions.map((u: string) => (
+                        <SelectItem key={u} value={u}>
+                          {u}
+                        </SelectItem>
                       ))
                     )}
                   </SelectContent>
@@ -366,7 +466,12 @@ export default function Produk() {
             <div className="space-y-1.5">
               <Label>Barcode</Label>
               <div className="flex gap-2">
-                <Input value={barcode} onChange={e => setBarcode(e.target.value)} placeholder="Opsional" className="h-11 flex-1" />
+                <Input
+                  value={barcode}
+                  onChange={e => setBarcode(e.target.value)}
+                  placeholder="Opsional"
+                  className="h-11 flex-1"
+                />
                 <Button
                   type="button"
                   variant="outline"
@@ -390,8 +495,12 @@ export default function Produk() {
               />
               <p className="text-[10px] text-muted-foreground text-right">{description.length}/500</p>
             </div>
-            <Button className="w-full h-12 text-base font-semibold" onClick={handleSave} disabled={!name.trim() || !categoryId || !sku.trim()}>
-              {editProduct ? 'Simpan Perubahan' : 'Tambah Produk'}
+            <Button
+              className="w-full h-12 text-base font-semibold"
+              onClick={handleSave}
+              disabled={!name.trim() || !categoryId || !sku.trim() || isSaving}
+            >
+              {isSaving ? 'Menyimpan...' : editProduct ? 'Simpan Perubahan' : 'Tambah Produk'}
             </Button>
           </div>
         </DialogContent>
@@ -406,7 +515,13 @@ export default function Produk() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Batal</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">Hapus</AlertDialogAction>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground"
+              disabled={deleteProduct.isPending}
+            >
+              {deleteProduct.isPending ? 'Menghapus...' : 'Hapus'}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

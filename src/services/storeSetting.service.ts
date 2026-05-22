@@ -28,7 +28,19 @@ export const storeSettingService = {
   },
 
   update: async (payload: UpdateStoreSettingPayload): Promise<StoreSetting> => {
-    const { data } = await api.put('/store-settings', payload);
+    const mappedPayload = {
+      name: payload.storeName,
+      address: payload.address,
+      phone: payload.phone,
+      footerReceipt: payload.receiptFooter,
+      onboardingDone: payload.onboardingDone,
+    };
+
+    const { data } = await api.put(
+      '/store-settings',
+      mappedPayload
+    );
+
     return data.data;
   },
 };
