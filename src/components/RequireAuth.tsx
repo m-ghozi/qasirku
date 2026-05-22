@@ -4,9 +4,15 @@ import { Loader2 } from 'lucide-react';
 
 /**
  * Wrapper route yang memastikan user sudah login.
- * - loading  → tampilkan spinner (tunggu /users/me selesai)
+ * - loading  → tampilkan spinner (tunggu GET /users/me selesai)
  * - belum login → redirect ke /login, simpan lokasi asal di state
  * - sudah login → render children via <Outlet />
+ *
+ * Catatan migrasi:
+ *   Versi lama membaca session dari Dexie (multiUserEnabled + db.users).
+ *   Versi baru sepenuhnya mengandalkan JWT token di localStorage +
+ *   verifikasi ke GET /users/me yang dilakukan di dalam AuthProvider.
+ *   Tidak ada perubahan tampilan/UX — hanya sumber data yang berubah.
  */
 export default function RequireAuth() {
   const { currentUser, loading } = useAuth();

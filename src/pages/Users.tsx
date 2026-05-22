@@ -1,7 +1,25 @@
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type User, ALL_PERMISSIONS } from '@/lib/db';
+/**
+ * Users.tsx — MIGRATED (Step 11)
+ *
+ * Perubahan dari versi Dexie:
+ *  - useLiveQuery(db.users) → useUsers()
+ *  - db.users.update(id, {name, permissions}) → useUpdateUser()
+ *  - db.users.add() via createUser() lokal → useCreateUser()
+ *  - db.users.update(id, {isActive}) → useUpdateUser()
+ *  - db.users.delete(id) → useDeleteUser()
+ *  - updateUserPin() lokal (hash di frontend) → useUpdateUser({ pin })
+ *  - isValidPin / isValidUsername → tetap dipakai untuk validasi sisi klien
+ *  - PERMISSION_LABELS, DEFAULT_STAFF_PERMISSIONS, ALL_PERMISSIONS → dari @/lib/auth
+ *  - multiUserEnabled check → dihapus (semua user wajib login via JWT)
+ *  - User.isActive tipe di backend adalah Boolean, bukan 0/1
+ *  - refresh() setelah edit diri sendiri → tetap ada via useAuth().refresh()
+ */
+
 import { useState } from 'react';
-import { ArrowLeft, Plus, Edit2, Trash2, KeyRound, UserCircle2, ShieldCheck, UserCheck, UserX, Users as UsersIcon } from 'lucide-react';
+import {
+  ArrowLeft, Plus, Edit2, Trash2, KeyRound,
+  UserCircle2, ShieldCheck, UserCheck, UserX, Users as UsersIcon,
+} from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,68 +31,53 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/use-auth';
 import {
-  createUser,
-  updateUserPin,
-  hashPin,
-  isValidPin,
-  isValidUsername,
+  ALL_PERMISSIONS,
   PERMISSION_LABELS,
   DEFAULT_STAFF_PERMISSIONS,
   type PermissionKey,
 } from '@/lib/auth';
+import {
+  useUsers,
+  useCreateUser,
+  useUpdateUser,
+  useDeleteUser,
+} from '@/hooks/use-users';
+import type { User } from '@/services/user.service';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';
 
+// Validasi sisi klien (tidak butuh Dexie)
+function isValidPin(pin: string) { return /^\d{4,6}$/.test(pin); }
+function isValidUsername(u: string) { return /^[a-z0-9_.]{3,20}$/.test(u); }
+
 export default function UsersPage() {
   const navigate = useNavigate();
-  const { currentUser, isOwner, multiUserEnabled, refresh } = useAuth();
-  const users = useLiveQuery(() => db.users.toArray());
+  const { currentUser, isOwner, refresh } = useAuth();
 
-  // Add/edit dialog
+  // ── API hooks ────────────────────────────────────────────────────────────
+  const { data: users = [], isLoading } = useUsers();
+  const createUser = useCreateUser();
+  const updateUser = useUpdateUser();
+  const deleteUser = useDeleteUser();
+
+  // ── Dialog: Add/Edit ─────────────────────────────────────────────────────
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [pin, setPin] = useState('');
   const [permissions, setPermissions] = useState<PermissionKey[]>(DEFAULT_STAFF_PERMISSIONS);
-  const [saving, setSaving] = useState(false);
 
-  // Reset PIN dialog
+  // ── Dialog: Reset PIN ────────────────────────────────────────────────────
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
   const [pinTarget, setPinTarget] = useState<User | null>(null);
   const [newPin, setNewPin] = useState('');
 
-  // Delete confirmation
+  // ── Dialog: Delete ───────────────────────────────────────────────────────
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
 
-  if (!multiUserEnabled) {
-    return (
-      <div className="px-4 pt-6 pb-4">
-        <div className="flex items-center gap-3 mb-4">
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate(-1)}>
-            <ArrowLeft className="w-4 h-4" />
-          </Button>
-          <h1 className="text-xl font-bold flex items-center gap-2">
-            <UsersIcon className="w-5 h-5 text-primary" />
-            Karyawan & Akses
-          </h1>
-        </div>
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-6 text-center space-y-2">
-            <p className="text-sm font-semibold">Multi-user belum aktif</p>
-            <p className="text-xs text-muted-foreground">
-              Aktifkan dulu di halaman Pengaturan untuk mengelola karyawan dan akses.
-            </p>
-            <Button size="sm" className="mt-2" onClick={() => navigate('/settings')}>
-              Buka Pengaturan
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
+  // ── Guard: hanya owner ───────────────────────────────────────────────────
   if (!isOwner) {
     return (
       <div className="px-4 pt-6 pb-4">
@@ -96,11 +99,11 @@ export default function UsersPage() {
     );
   }
 
+  // ── Handlers ─────────────────────────────────────────────────────────────
+
   const openAdd = () => {
     setEditing(null);
-    setName('');
-    setUsername('');
-    setPin('');
+    setName(''); setUsername(''); setPin('');
     setPermissions(DEFAULT_STAFF_PERMISSIONS);
     setDialogOpen(true);
   };
@@ -115,54 +118,44 @@ export default function UsersPage() {
   };
 
   const togglePermission = (key: PermissionKey, checked: boolean) => {
-    setPermissions((prev) => (checked ? [...new Set([...prev, key])] : prev.filter((p) => p !== key)));
+    setPermissions(prev => checked ? [...new Set([...prev, key])] : prev.filter(p => p !== key));
   };
 
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      if (editing) {
-        // Edit existing user (name + permissions only — username & PIN have separate flows)
-        if (!name.trim()) {
-          toast.error('Nama tidak boleh kosong');
-          return;
+  const handleSave = () => {
+    if (!name.trim()) { toast.error('Nama tidak boleh kosong'); return; }
+
+    if (editing) {
+      // Edit: hanya nama + permissions
+      updateUser.mutate(
+        {
+          id: editing.id,
+          payload: {
+            name: name.trim(),
+            permissions: editing.role === 'owner' ? [] : permissions,
+          },
+        },
+        {
+          onSuccess: async () => {
+            setDialogOpen(false);
+            // Kalau edit diri sendiri, sinkronkan context auth
+            if (currentUser?.id === editing.id) await refresh();
+          },
         }
-        await db.users.update(editing.id!, {
-          name: name.trim(),
-          permissions: editing.role === 'owner' ? [] : permissions,
-        });
-        toast.success('Data karyawan diperbarui');
-        if (currentUser?.id === editing.id) await refresh();
-      } else {
-        // Create new staff
-        if (!isValidUsername(username)) {
-          toast.error('Username 3-20 karakter, hanya huruf/angka/underscore');
-          return;
-        }
-        if (!isValidPin(pin)) {
-          toast.error('PIN harus 4-6 digit angka');
-          return;
-        }
-        if (!name.trim()) {
-          toast.error('Nama tidak boleh kosong');
-          return;
-        }
-        const result = await createUser({
-          username,
-          pin,
-          name,
-          role: 'staff',
-          permissions,
-        });
-        if (!result.ok) {
-          toast.error(result.error || 'Gagal menambah karyawan');
-          return;
-        }
-        toast.success(`Karyawan "${name.trim()}" ditambahkan`);
+      );
+    } else {
+      // Tambah baru
+      if (!isValidUsername(username)) {
+        toast.error('Username 3-20 karakter, hanya huruf/angka/underscore');
+        return;
       }
-      setDialogOpen(false);
-    } finally {
-      setSaving(false);
+      if (!isValidPin(pin)) {
+        toast.error('PIN harus 4-6 digit angka');
+        return;
+      }
+      createUser.mutate(
+        { username, name: name.trim(), pin, permissions },
+        { onSuccess: () => setDialogOpen(false) }
+      );
     }
   };
 
@@ -172,61 +165,63 @@ export default function UsersPage() {
     setPinDialogOpen(true);
   };
 
-  const handlePinReset = async () => {
-    if (!pinTarget?.id) return;
-    if (!isValidPin(newPin)) {
-      toast.error('PIN harus 4-6 digit angka');
-      return;
-    }
-    const result = await updateUserPin(pinTarget.id, newPin);
-    if (!result.ok) {
-      toast.error(result.error || 'Gagal reset PIN');
-      return;
-    }
-    toast.success(`PIN ${pinTarget.name} berhasil direset`);
-    setPinDialogOpen(false);
+  const handlePinReset = () => {
+    if (!pinTarget) return;
+    if (!isValidPin(newPin)) { toast.error('PIN harus 4-6 digit angka'); return; }
+    updateUser.mutate(
+      { id: pinTarget.id, payload: { pin: newPin } },
+      {
+        onSuccess: () => {
+          toast.success(`PIN ${pinTarget.name} berhasil direset`);
+          setPinDialogOpen(false);
+        },
+      }
+    );
   };
 
-  const toggleActive = async (user: User) => {
+  const toggleActive = (user: User) => {
     if (user.id === currentUser?.id) {
       toast.error('Tidak bisa menonaktifkan akun yang sedang login');
       return;
     }
-    if (user.role === 'owner') {
-      const otherOwners = (users ?? []).filter((u) => u.role === 'owner' && u.id !== user.id && u.isActive === 1);
-      if (user.isActive === 1 && otherOwners.length === 0) {
+    if (user.role === 'owner' && user.isActive) {
+      const activeOwners = users.filter(u => u.role === 'owner' && u.isActive && u.id !== user.id);
+      if (activeOwners.length === 0) {
         toast.error('Harus ada minimal 1 pemilik aktif');
         return;
       }
     }
-    await db.users.update(user.id!, { isActive: user.isActive === 1 ? 0 : 1 });
-    toast.success(user.isActive === 1 ? 'Akun dinonaktifkan' : 'Akun diaktifkan');
+    updateUser.mutate({ id: user.id, payload: { isActive: !user.isActive } });
   };
 
-  const handleDelete = async () => {
-    if (!deleteTarget?.id) return;
+  const handleDelete = () => {
+    if (!deleteTarget) return;
     if (deleteTarget.id === currentUser?.id) {
       toast.error('Tidak bisa menghapus akun sendiri');
       setDeleteTarget(null);
       return;
     }
     if (deleteTarget.role === 'owner') {
-      const otherOwners = (users ?? []).filter((u) => u.role === 'owner' && u.id !== deleteTarget.id);
+      const otherOwners = users.filter(u => u.role === 'owner' && u.id !== deleteTarget.id);
       if (otherOwners.length === 0) {
         toast.error('Harus ada minimal 1 pemilik');
         setDeleteTarget(null);
         return;
       }
     }
-    await db.users.delete(deleteTarget.id);
-    toast.success(`Akun "${deleteTarget.name}" dihapus`);
-    setDeleteTarget(null);
+    deleteUser.mutate(deleteTarget.id, {
+      onSuccess: () => setDeleteTarget(null),
+    });
   };
 
-  const sortedUsers = (users ?? []).slice().sort((a, b) => {
+  const sortedUsers = [...users].sort((a, b) => {
     if (a.role !== b.role) return a.role === 'owner' ? -1 : 1;
     return a.name.localeCompare(b.name);
   });
+
+  const isMutating = createUser.isPending || updateUser.isPending;
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="px-4 pt-6 pb-4 space-y-4">
@@ -249,92 +244,89 @@ export default function UsersPage() {
         Tambah Karyawan
       </Button>
 
-      <div className="space-y-2">
-        {sortedUsers.map((user) => (
-          <Card key={user.id} className="border-0 shadow-sm">
-            <CardContent className="p-3">
-              <div className="flex items-start gap-3">
-                <div
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                    user.role === 'owner' ? 'bg-primary/10 text-primary' : 'bg-accent/10 text-accent'
-                  }`}
-                >
-                  {user.role === 'owner' ? <ShieldCheck className="w-5 h-5" /> : <UserCircle2 className="w-5 h-5" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-semibold">{user.name}</p>
-                    {user.role === 'owner' && (
-                      <Badge variant="secondary" className="text-[9px] h-4 bg-primary/10 text-primary border-primary/20">
-                        Pemilik
-                      </Badge>
+      {/* ── Daftar user ─────────────────────────────────────────────────── */}
+      {isLoading ? (
+        <p className="text-xs text-muted-foreground text-center py-8">Memuat data...</p>
+      ) : (
+        <div className="space-y-2">
+          {sortedUsers.map(user => (
+            <Card key={user.id} className="border-0 shadow-sm">
+              <CardContent className="p-3">
+                <div className="flex items-start gap-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${user.role === 'owner' ? 'bg-primary/10 text-primary' : 'bg-accent/10 text-accent'}`}>
+                    {user.role === 'owner' ? <ShieldCheck className="w-5 h-5" /> : <UserCircle2 className="w-5 h-5" />}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-semibold">{user.name}</p>
+                      {user.role === 'owner' && (
+                        <Badge variant="secondary" className="text-[9px] h-4 bg-primary/10 text-primary border-primary/20">
+                          Pemilik
+                        </Badge>
+                      )}
+                      {user.id === currentUser?.id && (
+                        <Badge variant="secondary" className="text-[9px] h-4">Anda</Badge>
+                      )}
+                      {!user.isActive && (
+                        <Badge variant="secondary" className="text-[9px] h-4 bg-muted text-muted-foreground">
+                          Nonaktif
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground font-mono">@{user.username}</p>
+                    {user.role !== 'owner' && (
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        {user.permissions.length === 0
+                          ? 'Tidak ada akses'
+                          : `${user.permissions.length} akses diberikan`}
+                      </p>
                     )}
-                    {user.id === currentUser?.id && (
-                      <Badge variant="secondary" className="text-[9px] h-4">
-                        Anda
-                      </Badge>
-                    )}
-                    {user.isActive === 0 && (
-                      <Badge variant="secondary" className="text-[9px] h-4 bg-muted text-muted-foreground">
-                        Nonaktif
-                      </Badge>
+                    {user.lastLoginAt && (
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        Login terakhir: {format(new Date(user.lastLoginAt), 'dd MMM yyyy HH:mm', { locale: localeId })}
+                      </p>
                     )}
                   </div>
-                  <p className="text-[11px] text-muted-foreground font-mono">@{user.username}</p>
-                  {user.role !== 'owner' && (
-                    <p className="text-[10px] text-muted-foreground mt-0.5">
-                      {user.permissions.length === 0
-                        ? 'Tidak ada akses'
-                        : `${user.permissions.length} akses diberikan`}
-                    </p>
-                  )}
-                  {user.lastLoginAt && (
-                    <p className="text-[10px] text-muted-foreground mt-0.5">
-                      Login terakhir: {format(new Date(user.lastLoginAt), 'dd MMM yyyy HH:mm', { locale: localeId })}
-                    </p>
-                  )}
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(user)} title="Edit">
-                    <Edit2 className="w-3.5 h-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={() => openPinReset(user)}
-                    title="Reset PIN"
-                  >
-                    <KeyRound className="w-3.5 h-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={() => toggleActive(user)}
-                    title={user.isActive === 1 ? 'Nonaktifkan' : 'Aktifkan'}
-                  >
-                    {user.isActive === 1 ? <UserCheck className="w-3.5 h-3.5" /> : <UserX className="w-3.5 h-3.5 text-muted-foreground" />}
-                  </Button>
-                  {user.id !== currentUser?.id && (
+
+                  <div className="flex flex-col gap-1">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(user)} title="Edit">
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openPinReset(user)} title="Reset PIN">
+                      <KeyRound className="w-3.5 h-3.5" />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7 text-destructive"
-                      onClick={() => setDeleteTarget(user)}
-                      title="Hapus"
+                      className="h-7 w-7"
+                      onClick={() => toggleActive(user)}
+                      title={user.isActive ? 'Nonaktifkan' : 'Aktifkan'}
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      {user.isActive
+                        ? <UserCheck className="w-3.5 h-3.5" />
+                        : <UserX className="w-3.5 h-3.5 text-muted-foreground" />}
                     </Button>
-                  )}
+                    {user.id !== currentUser?.id && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-destructive"
+                        onClick={() => setDeleteTarget(user)}
+                        title="Hapus"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
-      {/* Add/Edit dialog */}
+      {/* ── Dialog: Add/Edit ─────────────────────────────────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-[95vw] rounded-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -348,7 +340,12 @@ export default function UsersPage() {
           <div className="space-y-4 mt-2">
             <div className="space-y-1.5">
               <Label>Nama Lengkap *</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Contoh: Budi Santoso" className="h-11" />
+              <Input
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="Contoh: Budi Santoso"
+                className="h-11"
+              />
             </div>
 
             {!editing && (
@@ -357,7 +354,7 @@ export default function UsersPage() {
                   <Label>Username *</Label>
                   <Input
                     value={username}
-                    onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g, ''))}
+                    onChange={e => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g, ''))}
                     placeholder="Contoh: budi"
                     className="h-11 font-mono"
                     autoCapitalize="none"
@@ -374,7 +371,7 @@ export default function UsersPage() {
                     pattern="[0-9]*"
                     maxLength={6}
                     value={pin}
-                    onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+                    onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
                     placeholder="4-6 digit"
                     className="h-11 font-mono text-center tracking-widest"
                   />
@@ -390,19 +387,17 @@ export default function UsersPage() {
               <div className="space-y-2">
                 <Label className="text-sm">Hak Akses</Label>
                 <div className="space-y-1.5">
-                  {ALL_PERMISSIONS.map((key) => {
+                  {ALL_PERMISSIONS.map(key => {
                     const meta = PERMISSION_LABELS[key];
                     const checked = permissions.includes(key);
                     return (
                       <label
                         key={key}
-                        className={`flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors ${
-                          checked ? 'border-primary/50 bg-primary/5' : 'border-muted bg-muted/30'
-                        }`}
+                        className={`flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors ${checked ? 'border-primary/50 bg-primary/5' : 'border-muted bg-muted/30'}`}
                       >
                         <Switch
                           checked={checked}
-                          onCheckedChange={(v) => togglePermission(key, v === true)}
+                          onCheckedChange={v => togglePermission(key, v === true)}
                           className="mt-0.5 shrink-0"
                         />
                         <div className="flex-1 min-w-0">
@@ -416,20 +411,20 @@ export default function UsersPage() {
               </div>
             )}
 
-            <Button className="w-full h-11" onClick={handleSave} disabled={saving}>
-              {saving ? 'Menyimpan…' : editing ? 'Simpan Perubahan' : 'Tambah Karyawan'}
+            <Button className="w-full h-11" onClick={handleSave} disabled={isMutating}>
+              {isMutating ? 'Menyimpan…' : editing ? 'Simpan Perubahan' : 'Tambah Karyawan'}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* PIN reset dialog */}
+      {/* ── Dialog: Reset PIN ─────────────────────────────────────────────── */}
       <Dialog open={pinDialogOpen} onOpenChange={setPinDialogOpen}>
         <DialogContent className="max-w-[90vw] rounded-xl">
           <DialogHeader>
             <DialogTitle>Reset PIN {pinTarget?.name}</DialogTitle>
             <DialogDescription className="text-xs">
-              Masukkan PIN baru. PIN lama akan langsung diganti dan {pinTarget?.name} harus login ulang dengan PIN baru.
+              Masukkan PIN baru. PIN lama akan langsung diganti dan {pinTarget?.name} harus login ulang.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 mt-2">
@@ -439,31 +434,38 @@ export default function UsersPage() {
               pattern="[0-9]*"
               maxLength={6}
               value={newPin}
-              onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ''))}
+              onChange={e => setNewPin(e.target.value.replace(/\D/g, ''))}
               placeholder="4-6 digit"
               className="h-12 font-mono text-center tracking-widest text-lg"
               autoFocus
             />
-            <Button className="w-full h-11" onClick={handlePinReset} disabled={!isValidPin(newPin)}>
-              Simpan PIN Baru
+            <Button
+              className="w-full h-11"
+              onClick={handlePinReset}
+              disabled={!isValidPin(newPin) || updateUser.isPending}
+            >
+              {updateUser.isPending ? 'Menyimpan…' : 'Simpan PIN Baru'}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Delete confirmation */}
-      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+      {/* ── Dialog: Delete ────────────────────────────────────────────────── */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null); }}>
         <AlertDialogContent className="max-w-[90vw] rounded-xl">
           <AlertDialogHeader>
             <AlertDialogTitle>Hapus Akun {deleteTarget?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              Akun akan dihapus permanen. Riwayat transaksi yang dibuat oleh akun ini tidak akan terhapus, tapi nama
-              kasir akan tampil sebagai "—".
+              Akun akan dihapus permanen. Riwayat transaksi yang dibuat akun ini tidak terhapus,
+              tapi nama kasir akan tampil sebagai "—".
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Batal</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
               Hapus
             </AlertDialogAction>
           </AlertDialogFooter>

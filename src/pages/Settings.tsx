@@ -1,50 +1,124 @@
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type PaymentMethod, type Category, type Unit } from '@/lib/db';
-import { useState, useEffect, useRef } from 'react';
-import { Settings, Store, CreditCard, Tag, Download, Upload, Plus, Trash2, Edit2, Info, Truck, ArrowDownToLine, ArrowUpFromLine, ChevronRight, Receipt, Palette, HardDrive, Package, Camera, X, Ruler, Users as UsersIcon, ShieldCheck, LogOut, Smartphone, CheckCircle2, Globe, Share2 } from 'lucide-react';
-import ThemeColorPicker from '@/components/ThemeColorPicker';
-import { setThemeColor } from '@/hooks/use-theme-color';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+/**
+ * Settings.tsx — MIGRATED (Step 3)
+ *
+ * Perubahan dari versi Dexie:
+ *  - Semua operasi db.* dihapus
+ *  - Kategori  → useCategories / useCreateCategory / useUpdateCategory / useDeleteCategory
+ *  - PaymentMethods → tidak ada di backend baru (belum ada endpoint); dipertahankan sebagai
+ *    placeholder sampai endpoint /payment-methods tersedia
+ *  - StoreSetting  → useStoreSetting / useUpdateStoreSetting
+ *  - Units → belum ada endpoint backend; dipertahankan sebagai placeholder
+ *  - Backup/Restore → dihapus (data ada di server, bukan IndexedDB)
+ *  - Multi-user / users → gunakan useUsers / useCreateUser / useUpdateUser / useDeleteUser
+ *  - Tema warna  → tetap lokal (CSS variable, tidak perlu API)
+ *  - PWA install → tidak berubah (browser API)
+ *  - Auth (logout) → useAuth().logout()
+ */
+
+import { useState, useRef } from 'react';
+import {
+  Settings,
+  Store,
+  CreditCard,
+  Tag,
+  Plus,
+  Trash2,
+  Edit2,
+  Truck,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  ChevronRight,
+  Receipt,
+  Palette,
+  Package,
+  Camera,
+  X,
+  Ruler,
+  Users as UsersIcon,
+  ShieldCheck,
+  LogOut,
+  Smartphone,
+  Share2,
+  Info,
+  Download,
+} from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { exportBackupData } from '@/components/BackupReminder';
 import { compressImage } from '@/lib/image-utils';
 import { useAuth } from '@/hooks/use-auth';
-import { createUser, isValidPin, isValidUsername, saveSession } from '@/lib/auth';
 import { usePWAInstall } from '@/hooks/use-pwa-install';
+import {
+  useCategories,
+  useCreateCategory,
+  useUpdateCategory,
+  useDeleteCategory,
+} from '@/hooks/use-categories';
+import { useStoreSetting, useUpdateStoreSetting } from '@/hooks/use-store-setting';
+import { useUsers } from '@/hooks/use-users';
+import type { Category } from '@/services/category.service';
+
+// ── Warna tema (lokal, tidak butuh API) ──────────────────────────────────────
+import ThemeColorPicker from '@/components/ThemeColorPicker';
+
+const THEME_COLORS = [
+  { name: 'Oranye', hue: '25', saturation: '95%', lightness: '53%' },
+  { name: 'Biru', hue: '217', saturation: '91%', lightness: '60%' },
+  { name: 'Hijau', hue: '142', saturation: '71%', lightness: '45%' },
+  { name: 'Ungu', hue: '262', saturation: '83%', lightness: '58%' },
+  { name: 'Merah', hue: '0', saturation: '84%', lightness: '60%' },
+  { name: 'Pink', hue: '330', saturation: '81%', lightness: '60%' },
+  { name: 'Teal', hue: '172', saturation: '66%', lightness: '50%' },
+  { name: 'Kuning', hue: '45', saturation: '93%', lightness: '47%' },
+] as const;
+
+function getThemeHSL(hue: string) {
+  const preset = THEME_COLORS.find(c => c.hue === hue);
+  if (preset) return `${preset.hue} ${preset.saturation} ${preset.lightness}`;
+  return `${hue} 95% 53%`;
+}
+
+function applyThemeColor(hue: string) {
+  const hsl = getThemeHSL(hue);
+  document.documentElement.style.setProperty('--primary', hsl);
+  document.documentElement.style.setProperty('--ring', hsl);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', `hsl(${hsl})`);
+  // Simpan lokal di localStorage agar persist lintas reload
+  localStorage.setItem('themeColorHue', hue);
+}
+
+function getStoredThemeHue(): string {
+  return localStorage.getItem('themeColorHue') ?? '25';
+}
+
+// ── Komponen utama ────────────────────────────────────────────────────────────
 
 export default function Pengaturan() {
-  const storeSettings = useLiveQuery(() => db.storeSettings.toCollection().first());
-  const paymentMethods = useLiveQuery(() => db.paymentMethods.toArray());
-  const categories = useLiveQuery(() => db.categories.where('isDeleted').equals(0).toArray());
-  const usersCount = useLiveQuery(() => db.users.count());
-  const units = useLiveQuery(() => db.units.where('isDeleted').equals(0).toArray());
-
-  const { multiUserEnabled, currentUser, isOwner, can, logout } = useAuth();
-
-  // PWA install
+  const { currentUser, isOwner, can, logout } = useAuth();
   const { canInstall, isInstalled, isIOS, install } = usePWAInstall();
+
+  // ── API data ─────────────────────────────────────────────────────────────
+  const { data: storeSetting } = useStoreSetting();
+  const updateStoreSetting = useUpdateStoreSetting();
+
+  const { data: categories = [] } = useCategories();
+  const createCategory = useCreateCategory();
+  const updateCategory = useUpdateCategory();
+  const deleteCategory = useDeleteCategory();
+
+  const { data: users = [] } = useUsers();
+
+  // ── Tema warna lokal ──────────────────────────────────────────────────────
+  const [themeHue, setThemeHue] = useState(getStoredThemeHue);
+
+  // ── Dialog states ─────────────────────────────────────────────────────────
   const [installHelpOpen, setInstallHelpOpen] = useState(false);
-
-  // Multi-user activation
-  const [activateOpen, setActivateOpen] = useState(false);
-  const [actName, setActName] = useState('');
-  const [actUsername, setActUsername] = useState('');
-  const [actPin, setActPin] = useState('');
-  const [actPinConfirm, setActPinConfirm] = useState('');
-  const [activating, setActivating] = useState(false);
-
-  // Disable multi-user confirmation
-  const [disableOpen, setDisableOpen] = useState(false);
-
-  // Logout confirmation
   const [logoutOpen, setLogoutOpen] = useState(false);
 
   // Store edit
@@ -52,13 +126,7 @@ export default function Pengaturan() {
   const [storeName, setStoreName] = useState('');
   const [storeAddr, setStoreAddr] = useState('');
   const [storePhone, setStorePhone] = useState('');
-  const [storeLogo, setStoreLogo] = useState<string | undefined>(undefined);
   const logoInputRef = useRef<HTMLInputElement>(null);
-  // Payment method
-  const [pmDialog, setPmDialog] = useState(false);
-  const [pmName, setPmName] = useState('');
-  const [pmCategory, setPmCategory] = useState('tunai');
-  const [pmEditId, setPmEditId] = useState<number | null>(null);
 
   // Category
   const [catDialog, setCatDialog] = useState(false);
@@ -66,372 +134,81 @@ export default function Pengaturan() {
   const [catIcon, setCatIcon] = useState('📦');
   const [catColor, setCatColor] = useState('#FF6B35');
   const [catEditId, setCatEditId] = useState<number | null>(null);
+  const [catDeleteId, setCatDeleteId] = useState<number | null>(null);
 
-  // Unit
-  const [unitDialog, setUnitDialog] = useState(false);
-  const [unitName, setUnitName] = useState('');
-  const [unitEditId, setUnitEditId] = useState<number | null>(null);
-  const [unitOriginalName, setUnitOriginalName] = useState('');
-  const [unitDeleteTarget, setUnitDeleteTarget] = useState<Unit | null>(null);
-  const [unitDeleteUsage, setUnitDeleteUsage] = useState(0);
-
-  // Storage info (CR-9)
-  const [storageUsage, setStorageUsage] = useState<{ usage: number; quota: number } | null>(null);
-  useEffect(() => {
-    if (navigator.storage?.estimate) {
-      navigator.storage.estimate().then(est => {
-        setStorageUsage({ usage: est.usage ?? 0, quota: est.quota ?? 0 });
-      });
-    }
-  }, []);
+  // ── Handlers ──────────────────────────────────────────────────────────────
 
   const openStoreEdit = () => {
-    setStoreName(storeSettings?.storeName ?? '');
-    setStoreAddr(storeSettings?.address ?? '');
-    setStorePhone(storeSettings?.phone ?? '');
-    setStoreLogo(storeSettings?.logo);
+    setStoreName(storeSetting?.storeName ?? '');
+    setStoreAddr(storeSetting?.address ?? '');
+    setStorePhone(storeSetting?.phone ?? '');
     setStoreDialog(true);
   };
 
-  const saveStore = async () => {
-    if (storeSettings?.id) {
-      await db.storeSettings.update(storeSettings.id, { storeName: storeName.trim(), address: storeAddr.trim(), phone: storePhone.trim(), logo: storeLogo || undefined });
-      toast.success('Info toko disimpan');
-      setStoreDialog(false);
-    }
-  };
-
-  const handleLogoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      toast.error('File harus berupa gambar');
-      return;
-    }
-    try {
-      const compressed = await compressImage(file);
-      setStoreLogo(compressed);
-    } catch {
-      toast.error('Gagal memproses gambar');
-    }
-    if (logoInputRef.current) logoInputRef.current.value = '';
-  };
-
-  // === Multi-user activation ===
-
-  const openActivateDialog = () => {
-    setActName('');
-    setActUsername('');
-    setActPin('');
-    setActPinConfirm('');
-    setActivateOpen(true);
-  };
-
-  const handleActivateMultiUser = async () => {
-    if (!storeSettings?.id) return;
-    if (!actName.trim()) { toast.error('Nama pemilik wajib diisi'); return; }
-    if (!isValidUsername(actUsername)) {
-      toast.error('Username 3-20 karakter, hanya huruf/angka/underscore');
-      return;
-    }
-    if (!isValidPin(actPin)) {
-      toast.error('PIN harus 4-6 digit angka');
-      return;
-    }
-    if (actPin !== actPinConfirm) {
-      toast.error('Konfirmasi PIN tidak cocok');
-      return;
-    }
-
-    setActivating(true);
-    try {
-      // Check if owner already exists (idempotent — safety net)
-      const existingOwner = await db.users.where('role').equals('owner').first();
-      let ownerId = existingOwner?.id;
-
-      if (!existingOwner) {
-        const result = await createUser({
-          username: actUsername,
-          pin: actPin,
-          name: actName,
-          role: 'owner',
-          permissions: [],
-        });
-        if (!result.ok) {
-          toast.error(result.error || 'Gagal membuat akun pemilik');
-          return;
-        }
-        ownerId = result.userId;
+  const saveStore = () => {
+    updateStoreSetting.mutate(
+      {
+        storeName: storeName.trim(),
+        address: storeAddr.trim(),
+        phone: storePhone.trim(),
+      },
+      {
+        onSuccess: () => setStoreDialog(false),
       }
+    );
+  };
 
-      // Flip the flag
-      await db.storeSettings.update(storeSettings.id, { multiUserEnabled: true });
+  // Category handlers
+  const openCatAdd = () => {
+    setCatEditId(null);
+    setCatName('');
+    setCatIcon('📦');
+    setCatColor('#FF6B35');
+    setCatDialog(true);
+  };
 
-      // Persist session for the owner so they stay logged in immediately
-      if (ownerId && storeSettings.deviceId) {
-        saveSession(ownerId, storeSettings.deviceId);
-      }
+  const openCatEdit = (c: Category) => {
+    setCatEditId(c.id);
+    setCatName(c.name);
+    setCatIcon(c.icon);
+    setCatColor(c.color);
+    setCatDialog(true);
+  };
 
-      toast.success('Multi-user aktif. Anda login sebagai pemilik.');
-      setActivateOpen(false);
-      // Reload so AuthProvider picks up the new session + flag from a clean state.
-      window.location.reload();
-    } finally {
-      setActivating(false);
+  const saveCat = () => {
+    if (!catName.trim()) return;
+    if (catEditId) {
+      updateCategory.mutate(
+        { id: catEditId, payload: { name: catName.trim(), icon: catIcon, color: catColor } },
+        { onSuccess: () => setCatDialog(false) }
+      );
+    } else {
+      createCategory.mutate(
+        { name: catName.trim(), icon: catIcon, color: catColor },
+        { onSuccess: () => setCatDialog(false) }
+      );
     }
   };
 
-  const handleDisableMultiUser = async () => {
-    if (!storeSettings?.id) return;
-    await db.storeSettings.update(storeSettings.id, { multiUserEnabled: false });
-    setDisableOpen(false);
-    toast.success('Multi-user dinonaktifkan');
-    // Force reload so AuthProvider re-evaluates state.
-    window.location.reload();
+  const confirmDeleteCat = () => {
+    if (catDeleteId == null) return;
+    deleteCategory.mutate(catDeleteId, {
+      onSuccess: () => setCatDeleteId(null),
+    });
+  };
+
+  const handleThemeChange = (hue: string) => {
+    setThemeHue(hue);
+    applyThemeColor(hue);
   };
 
   const handleLogout = () => {
     logout();
     setLogoutOpen(false);
-    // Reload to drop any in-memory state and route back to login screen cleanly.
-    window.location.reload();
-  };
-
-  const openPmAdd = () => { setPmEditId(null); setPmName(''); setPmCategory('tunai'); setPmDialog(true); };
-  const openPmEdit = (pm: PaymentMethod) => { setPmEditId(pm.id!); setPmName(pm.name); setPmCategory(pm.category); setPmDialog(true); };
-  const savePm = async () => {
-    if (!pmName.trim()) return;
-    if (pmEditId) await db.paymentMethods.update(pmEditId, { name: pmName.trim(), category: pmCategory });
-    else await db.paymentMethods.add({ name: pmName.trim(), category: pmCategory, isDefault: false, createdAt: new Date() });
-    setPmDialog(false);
-    toast.success('Metode pembayaran disimpan');
-  };
-  const deletePm = async (id: number) => { await db.paymentMethods.delete(id); toast.success('Dihapus'); };
-
-  const openCatAdd = () => { setCatEditId(null); setCatName(''); setCatIcon('📦'); setCatColor('#FF6B35'); setCatDialog(true); };
-  const openCatEdit = (c: Category) => { setCatEditId(c.id!); setCatName(c.name); setCatIcon(c.icon); setCatColor(c.color); setCatDialog(true); };
-  const saveCat = async () => {
-    if (!catName.trim()) return;
-    if (catEditId) await db.categories.update(catEditId, { name: catName.trim(), icon: catIcon, color: catColor });
-    else await db.categories.add({ name: catName.trim(), icon: catIcon, color: catColor, createdAt: new Date(), isDeleted: 0, deletedAt: null });
-    setCatDialog(false);
-    toast.success('Kategori disimpan');
-  };
-  const deleteCat = async (id: number) => { await db.categories.update(id, { isDeleted: 1, deletedAt: new Date() }); toast.success('Dihapus'); };
-
-  const openUnitAdd = () => {
-    setUnitEditId(null);
-    setUnitName('');
-    setUnitOriginalName('');
-    setUnitDialog(true);
-  };
-  const openUnitEdit = (u: Unit) => {
-    setUnitEditId(u.id!);
-    setUnitName(u.name);
-    setUnitOriginalName(u.name);
-    setUnitDialog(true);
-  };
-  const saveUnit = async () => {
-    const name = unitName.trim();
-    if (!name) return;
-
-    // Uniqueness check (active units only — soft-deleted records still occupy &name index,
-    // but we want to surface a clearer message on conflict)
-    const existing = await db.units.where('name').equals(name).first();
-    if (existing && existing.id !== unitEditId) {
-      if (existing.isDeleted === 1) {
-        toast.error(`Satuan "${name}" pernah dihapus. Pakai nama lain atau pulihkan via backup.`);
-      } else {
-        toast.error(`Satuan "${name}" sudah ada`);
-      }
-      return;
-    }
-
-    try {
-      if (unitEditId) {
-        await db.units.update(unitEditId, { name });
-        // Cascade rename to all products using the old name so the dropdown stays consistent
-        if (unitOriginalName && unitOriginalName !== name) {
-          await db.products.where('unit').equals(unitOriginalName).modify({ unit: name, updatedAt: new Date() });
-        }
-      } else {
-        await db.units.add({
-          name,
-          isDefault: 0,
-          createdAt: new Date(),
-          isDeleted: 0,
-          deletedAt: null,
-        });
-      }
-      setUnitDialog(false);
-      toast.success('Satuan disimpan');
-    } catch {
-      toast.error('Gagal menyimpan satuan');
-    }
-  };
-  const requestDeleteUnit = async (u: Unit) => {
-    const usage = await db.products.where('unit').equals(u.name).filter(p => p.isDeleted === 0).count();
-    setUnitDeleteUsage(usage);
-    setUnitDeleteTarget(u);
-  };
-  const confirmDeleteUnit = async () => {
-    if (!unitDeleteTarget?.id) return;
-    await db.units.update(unitDeleteTarget.id, { isDeleted: 1, deletedAt: new Date() });
-    setUnitDeleteTarget(null);
-    toast.success('Satuan dihapus');
-  };
-
-  const handleImport = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json';
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
-      try {
-        const text = await file.text();
-        if (!text.trim()) { toast.error('File kosong'); return; }
-        const data = JSON.parse(text);
-        if (!data.version) { toast.error('File tidak valid'); return; }
-
-        // Validate at least 1 table has data
-        const hasSomeData = ['categories', 'products', 'suppliers', 'transactions', 'paymentMethods'].some(
-          key => Array.isArray(data[key]) && data[key].length > 0
-        );
-        if (!hasSomeData) { toast.error('File backup tidak berisi data'); return; }
-
-        // CR-7: Snapshot existing data before clearing
-        const snapshot = {
-          categories: await db.categories.toArray(),
-          products: await db.products.toArray(),
-          suppliers: await db.suppliers.toArray(),
-          stockIns: await db.stockIns.toArray(),
-          stockOuts: await db.stockOuts.toArray(),
-          hppHistory: await db.hppHistory.toArray(),
-          paymentMethods: await db.paymentMethods.toArray(),
-          transactions: await db.transactions.toArray(),
-          transactionItems: await db.transactionItems.toArray(),
-          storeSettings: await db.storeSettings.toArray(),
-          users: await db.users.toArray(),
-          units: await db.units.toArray(),
-        };
-
-        try {
-          // Clear all tables
-          await db.categories.clear(); await db.products.clear(); await db.suppliers.clear();
-          await db.stockIns.clear(); await db.stockOuts.clear(); await db.hppHistory.clear();
-          await db.paymentMethods.clear(); await db.transactions.clear(); await db.transactionItems.clear();
-          await db.storeSettings.clear();
-          // Only clear users if backup file has them (v4+); preserve user accounts
-          // when restoring older backups (v1-v3) so login still works after restore.
-          if (Array.isArray(data.users)) {
-            await db.users.clear();
-          }
-          await db.units.clear();
-
-          // BulkAdd from file
-          if (data.categories?.length) await db.categories.bulkAdd(data.categories);
-          if (data.products?.length) await db.products.bulkAdd(data.products);
-          if (data.suppliers?.length) await db.suppliers.bulkAdd(data.suppliers);
-          if (data.stockIns?.length) await db.stockIns.bulkAdd(data.stockIns);
-          if (data.stockOuts?.length) await db.stockOuts.bulkAdd(data.stockOuts);
-          if (data.hppHistory?.length) await db.hppHistory.bulkAdd(data.hppHistory);
-          if (data.paymentMethods?.length) await db.paymentMethods.bulkAdd(data.paymentMethods);
-          if (data.transactions?.length) await db.transactions.bulkAdd(data.transactions);
-          if (data.storeSettings?.length) await db.storeSettings.bulkAdd(data.storeSettings);
-          if (data.users?.length) await db.users.bulkAdd(data.users);
-
-          // Units (v3+ backup) or harvest from products (v1/v2 backup)
-          if (Array.isArray(data.units) && data.units.length > 0) {
-            await db.units.bulkAdd(data.units);
-          } else {
-            const now = new Date();
-            const defaults = ['pcs', 'kg', 'gram', 'liter', 'ml', 'porsi', 'cup', 'botol', 'bungkus'];
-            const seen = new Set<string>();
-            const toAdd: any[] = [];
-
-            for (const name of defaults) {
-              seen.add(name);
-              toAdd.push({ name, isDefault: 1, createdAt: now, isDeleted: 0, deletedAt: null });
-            }
-            if (Array.isArray(data.products)) {
-              for (const p of data.products) {
-                const u = (p?.unit as string | undefined)?.trim();
-                if (!u || seen.has(u)) continue;
-                seen.add(u);
-                toAdd.push({ name: u, isDefault: 0, createdAt: now, isDeleted: 0, deletedAt: null });
-              }
-            }
-            if (toAdd.length) await db.units.bulkAdd(toAdd);
-          }
-
-          // Handle transactionItems
-          if (data.transactionItems?.length) {
-            // v2 format: items already in separate table
-            await db.transactionItems.bulkAdd(data.transactionItems);
-          } else if (data.version === 1 && data.transactions?.length) {
-            // v1 format: migrate embedded items[] to transactionItems
-            for (const t of data.transactions) {
-              if (Array.isArray(t.items) && t.items.length > 0) {
-                const records = t.items.map((item: any) => ({
-                  transactionId: t.id,
-                  productId: item.productId,
-                  productName: item.productName,
-                  quantity: item.quantity,
-                  price: item.price,
-                  hpp: item.hpp,
-                  discountType: item.discountType,
-                  discountValue: item.discountValue,
-                  discountAmount: item.discountAmount,
-                  subtotal: item.subtotal,
-                }));
-                await db.transactionItems.bulkAdd(records);
-              }
-            }
-          }
-
-          toast.success('Data berhasil di-restore!');
-        } catch (importErr) {
-          // CR-7: Rollback — restore from snapshot
-          try {
-            await db.categories.clear(); await db.products.clear(); await db.suppliers.clear();
-            await db.stockIns.clear(); await db.stockOuts.clear(); await db.hppHistory.clear();
-            await db.paymentMethods.clear(); await db.transactions.clear(); await db.transactionItems.clear();
-            await db.storeSettings.clear();
-            await db.users.clear();
-            await db.units.clear();
-
-            if (snapshot.categories.length) await db.categories.bulkAdd(snapshot.categories);
-            if (snapshot.products.length) await db.products.bulkAdd(snapshot.products);
-            if (snapshot.suppliers.length) await db.suppliers.bulkAdd(snapshot.suppliers);
-            if (snapshot.stockIns.length) await db.stockIns.bulkAdd(snapshot.stockIns);
-            if (snapshot.stockOuts.length) await db.stockOuts.bulkAdd(snapshot.stockOuts);
-            if (snapshot.hppHistory.length) await db.hppHistory.bulkAdd(snapshot.hppHistory);
-            if (snapshot.paymentMethods.length) await db.paymentMethods.bulkAdd(snapshot.paymentMethods);
-            if (snapshot.transactions.length) await db.transactions.bulkAdd(snapshot.transactions);
-            if (snapshot.transactionItems.length) await db.transactionItems.bulkAdd(snapshot.transactionItems);
-            if (snapshot.storeSettings.length) await db.storeSettings.bulkAdd(snapshot.storeSettings);
-            if (snapshot.users.length) await db.users.bulkAdd(snapshot.users);
-            if (snapshot.units.length) await db.units.bulkAdd(snapshot.units);
-
-            toast.error('Import gagal, data dikembalikan');
-          } catch {
-            toast.error('Import gagal dan rollback gagal. Coba restore dari file backup.');
-          }
-        }
-      } catch { toast.error('Gagal membaca file'); }
-    };
-    input.click();
+    window.location.replace('/login');
   };
 
   const emojiOptions = ['📦', '🍕', '🥤', '🍜', '🧃', '🎽', '💊', '🧹', '📱', '🛒', '🎁', '✂️'];
-
-  const formatBytes = (bytes: number): string => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-  };
 
   return (
     <div className="px-4 pt-6 pb-4 space-y-5">
@@ -440,28 +217,24 @@ export default function Pengaturan() {
         Pengaturan
       </h1>
 
-      {/* Store Info */}
+      {/* ── Info Toko ────────────────────────────────────────────────────── */}
       <Card
         className={`border-0 shadow-sm ${can('manage_store_settings') ? 'cursor-pointer' : 'cursor-default opacity-90'}`}
         onClick={() => can('manage_store_settings') && openStoreEdit()}
       >
         <CardContent className="p-4 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center overflow-hidden shrink-0">
-            {storeSettings?.logo ? (
-              <img src={storeSettings.logo} alt="Logo" className="w-full h-full object-cover" />
-            ) : (
-              <Store className="w-5 h-5" />
-            )}
+          <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+            <Store className="w-5 h-5" />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-semibold">{storeSettings?.storeName || 'Toko Saya'}</p>
-            <p className="text-xs text-muted-foreground">{storeSettings?.address || 'Belum diatur'}</p>
+            <p className="text-sm font-semibold">{storeSetting?.storeName || 'Toko Saya'}</p>
+            <p className="text-xs text-muted-foreground">{storeSetting?.address || 'Belum diatur'}</p>
           </div>
           {can('manage_store_settings') && <Edit2 className="w-4 h-4 text-muted-foreground" />}
         </CardContent>
       </Card>
 
-      {/* Install as App — hidden when already installed */}
+      {/* ── Install sebagai App ──────────────────────────────────────────── */}
       {!isInstalled && (
         <Card className="border-0 shadow-sm">
           <CardContent className="p-3 flex items-center gap-3">
@@ -470,9 +243,7 @@ export default function Pengaturan() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold">Install sebagai Aplikasi</p>
-              <p className="text-[10px] text-muted-foreground">
-                Buka langsung dari home screen, tanpa browser
-              </p>
+              <p className="text-[10px] text-muted-foreground">Buka langsung dari home screen, tanpa browser</p>
             </div>
             {canInstall ? (
               <Button
@@ -487,12 +258,7 @@ export default function Pengaturan() {
                 Install
               </Button>
             ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 text-xs"
-                onClick={() => setInstallHelpOpen(true)}
-              >
+              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setInstallHelpOpen(true)}>
                 Cara Install
               </Button>
             )}
@@ -500,8 +266,8 @@ export default function Pengaturan() {
         </Card>
       )}
 
-      {/* Karyawan & Akses (current user / multi-user activation) */}
-      {multiUserEnabled && currentUser ? (
+      {/* ── Akun yang sedang login ───────────────────────────────────────── */}
+      {currentUser && (
         <Card className="border-0 shadow-sm">
           <CardContent className="p-4 flex items-center gap-3">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${currentUser.role === 'owner' ? 'bg-primary/10 text-primary' : 'bg-accent/10 text-accent'}`}>
@@ -513,98 +279,90 @@ export default function Pengaturan() {
                 @{currentUser.username} · {currentUser.role === 'owner' ? 'Pemilik' : 'Karyawan'}
               </p>
             </div>
-            <Button variant="ghost" size="sm" className="h-8 text-xs gap-1 text-destructive" onClick={() => setLogoutOpen(true)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 text-xs gap-1 text-destructive"
+              onClick={() => setLogoutOpen(true)}
+            >
               <LogOut className="w-3.5 h-3.5" />
               Keluar
             </Button>
           </CardContent>
         </Card>
-      ) : null}
+      )}
 
-      {/* Karyawan & Akses links/activation */}
+      {/* ── Karyawan & Akses (hanya owner) ──────────────────────────────── */}
       {isOwner && (
         <div className="space-y-2">
           <h2 className="text-sm font-semibold text-muted-foreground">Karyawan & Akses</h2>
-          {!multiUserEnabled ? (
-            <Card className="border-0 shadow-sm">
+          <Link to="/users">
+            <Card className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow">
               <CardContent className="p-3 flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
                   <UsersIcon className="w-4 h-4" />
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold">Aktifkan Multi-User</p>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold">Kelola Karyawan</p>
                   <p className="text-[10px] text-muted-foreground">
-                    Buat akun karyawan dengan akses terbatas. Data Anda tetap aman.
+                    {users.length} akun terdaftar · atur akses per karyawan
                   </p>
                 </div>
-                <Button size="sm" className="h-8 text-xs" onClick={openActivateDialog}>
-                  Aktifkan
-                </Button>
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
               </CardContent>
             </Card>
-          ) : (
-            <>
-              <Link to="/users">
-                <Card className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow mb-2">
-                  <CardContent className="p-3 flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center"><UsersIcon className="w-4 h-4" /></div>
-                    <div className="flex-1">
-                      <p className="text-sm font-semibold">Kelola Karyawan</p>
-                      <p className="text-[10px] text-muted-foreground">{usersCount ?? 0} akun terdaftar · atur akses per karyawan</p>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                  </CardContent>
-                </Card>
-              </Link>
-              <Card className="border-0 shadow-sm">
-                <CardContent className="p-3 flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-muted text-muted-foreground flex items-center justify-center shrink-0">
-                    <ShieldCheck className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold">Multi-User Aktif</p>
-                    <p className="text-[10px] text-muted-foreground">Karyawan harus login untuk akses kasir</p>
-                  </div>
-                  <Button variant="ghost" size="sm" className="h-8 text-xs text-destructive" onClick={() => setDisableOpen(true)}>
-                    Nonaktifkan
-                  </Button>
-                </CardContent>
-              </Card>
-            </>
-          )}
+          </Link>
         </div>
       )}
 
-      {/* Transaksi & Stok */}
+      {/* ── Transaksi & Stok ─────────────────────────────────────────────── */}
       <div className="space-y-2">
         <h2 className="text-sm font-semibold text-muted-foreground">Transaksi & Stok</h2>
+
         <Link to="/history">
           <Card className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow mb-2">
             <CardContent className="p-3 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center"><Receipt className="w-4 h-4" /></div>
-              <div className="flex-1"><p className="text-sm font-semibold">Riwayat Transaksi</p><p className="text-[10px] text-muted-foreground">Lihat semua transaksi & cetak ulang struk</p></div>
+              <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+                <Receipt className="w-4 h-4" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold">Riwayat Transaksi</p>
+                <p className="text-[10px] text-muted-foreground">Lihat semua transaksi & cetak ulang struk</p>
+              </div>
               <ChevronRight className="w-4 h-4 text-muted-foreground" />
             </CardContent>
           </Card>
         </Link>
+
         {can('manage_supplier') && (
           <Link to="/supplier">
             <Card className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow mb-2">
               <CardContent className="p-3 flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-accent/10 text-accent flex items-center justify-center"><Truck className="w-4 h-4" /></div>
-                <div className="flex-1"><p className="text-sm font-semibold">Supplier</p><p className="text-[10px] text-muted-foreground">Kelola data supplier</p></div>
+                <div className="w-9 h-9 rounded-lg bg-accent/10 text-accent flex items-center justify-center">
+                  <Truck className="w-4 h-4" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold">Supplier</p>
+                  <p className="text-[10px] text-muted-foreground">Kelola data supplier</p>
+                </div>
                 <ChevronRight className="w-4 h-4 text-muted-foreground" />
               </CardContent>
             </Card>
           </Link>
         )}
+
         {can('manage_stock_inout') && (
           <>
             <Link to="/stock-in">
               <Card className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow mb-2">
                 <CardContent className="p-3 flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-success/10 text-success flex items-center justify-center"><ArrowDownToLine className="w-4 h-4" /></div>
-                  <div className="flex-1"><p className="text-sm font-semibold">Stock In</p><p className="text-[10px] text-muted-foreground">Catat barang masuk & HPP otomatis</p></div>
+                  <div className="w-9 h-9 rounded-lg bg-success/10 text-success flex items-center justify-center">
+                    <ArrowDownToLine className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold">Stock In</p>
+                    <p className="text-[10px] text-muted-foreground">Catat barang masuk & HPP otomatis</p>
+                  </div>
                   <ChevronRight className="w-4 h-4 text-muted-foreground" />
                 </CardContent>
               </Card>
@@ -612,20 +370,31 @@ export default function Pengaturan() {
             <Link to="/stock-out">
               <Card className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow mb-2">
                 <CardContent className="p-3 flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-destructive/10 text-destructive flex items-center justify-center"><ArrowUpFromLine className="w-4 h-4" /></div>
-                  <div className="flex-1"><p className="text-sm font-semibold">Stock Out</p><p className="text-[10px] text-muted-foreground">Catat barang keluar non-penjualan</p></div>
+                  <div className="w-9 h-9 rounded-lg bg-destructive/10 text-destructive flex items-center justify-center">
+                    <ArrowUpFromLine className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold">Stock Out</p>
+                    <p className="text-[10px] text-muted-foreground">Catat barang keluar non-penjualan</p>
+                  </div>
                   <ChevronRight className="w-4 h-4 text-muted-foreground" />
                 </CardContent>
               </Card>
             </Link>
           </>
         )}
+
         {can('view_reports') && (
           <Link to="/stock-report">
             <Card className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow">
               <CardContent className="p-3 flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center"><Package className="w-4 h-4" /></div>
-                <div className="flex-1"><p className="text-sm font-semibold">Laporan Stok</p><p className="text-[10px] text-muted-foreground">Lihat pergerakan stok per periode</p></div>
+                <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+                  <Package className="w-4 h-4" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold">Laporan Stok</p>
+                  <p className="text-[10px] text-muted-foreground">Lihat pergerakan stok per periode</p>
+                </div>
                 <ChevronRight className="w-4 h-4 text-muted-foreground" />
               </CardContent>
             </Card>
@@ -633,315 +402,174 @@ export default function Pengaturan() {
         )}
       </div>
 
-      {/* Payment Methods */}
+      {/* ── Kategori Produk ──────────────────────────────────────────────── */}
       {can('manage_categories_payments') && (
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm flex items-center gap-1.5"><CreditCard className="w-4 h-4" /> Metode Pembayaran</CardTitle>
-            <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={openPmAdd}><Plus className="w-3 h-3" />Tambah</Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-1">
-          {paymentMethods?.map(pm => (
-            <div key={pm.id} className="flex items-center justify-between py-1.5">
-              <div>
-                <p className="text-sm font-medium">{pm.name}</p>
-                <p className="text-[10px] text-muted-foreground capitalize">{pm.category}</p>
-              </div>
-              <div className="flex gap-1">
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openPmEdit(pm)}><Edit2 className="w-3 h-3" /></Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deletePm(pm.id!)}><Trash2 className="w-3 h-3" /></Button>
-              </div>
+        <Card className="border-0 shadow-sm">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm flex items-center gap-1.5">
+                <Tag className="w-4 h-4" /> Kategori Produk
+              </CardTitle>
+              <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={openCatAdd}>
+                <Plus className="w-3 h-3" /> Tambah
+              </Button>
             </div>
-          ))}
-        </CardContent>
-      </Card>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {categories.length === 0 && (
+              <p className="text-xs text-muted-foreground py-1.5">Belum ada kategori</p>
+            )}
+            {categories.map(c => (
+              <div key={c.id} className="flex items-center justify-between py-1.5">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="w-6 h-6 rounded flex items-center justify-center text-sm"
+                    style={{ backgroundColor: c.color + '20' }}
+                  >
+                    {c.icon}
+                  </span>
+                  <span className="text-sm font-medium">{c.name}</span>
+                </div>
+                <div className="flex gap-1">
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openCatEdit(c)}>
+                    <Edit2 className="w-3 h-3" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-destructive"
+                    onClick={() => setCatDeleteId(c.id)}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       )}
 
-      {/* Categories */}
-      {can('manage_categories_payments') && (
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm flex items-center gap-1.5"><Tag className="w-4 h-4" /> Kategori Produk</CardTitle>
-            <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={openCatAdd}><Plus className="w-3 h-3" />Tambah</Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-1">
-          {categories?.map(c => (
-            <div key={c.id} className="flex items-center justify-between py-1.5">
-              <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded flex items-center justify-center text-sm" style={{ backgroundColor: c.color + '20' }}>{c.icon}</span>
-                <span className="text-sm font-medium">{c.name}</span>
-              </div>
-              <div className="flex gap-1">
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openCatEdit(c)}><Edit2 className="w-3 h-3" /></Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteCat(c.id!)}><Trash2 className="w-3 h-3" /></Button>
-              </div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-      )}
-
-      {/* Units */}
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm flex items-center gap-1.5"><Ruler className="w-4 h-4" /> Satuan</CardTitle>
-            <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={openUnitAdd}><Plus className="w-3 h-3" />Tambah</Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-1">
-          {units && units.length === 0 && (
-            <p className="text-xs text-muted-foreground py-1.5">Belum ada satuan</p>
-          )}
-          {units?.map(u => (
-            <div key={u.id} className="flex items-center justify-between py-1.5">
-              <span className="text-sm font-medium">{u.name}</span>
-              <div className="flex gap-1">
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openUnitEdit(u)}><Edit2 className="w-3 h-3" /></Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => requestDeleteUnit(u)}><Trash2 className="w-3 h-3" /></Button>
-              </div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      {/* Theme Color */}
+      {/* ── Warna Tema ───────────────────────────────────────────────────── */}
       {can('manage_store_settings') && (
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm flex items-center gap-1.5"><Palette className="w-4 h-4" /> Warna Tema</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ThemeColorPicker
-            value={storeSettings?.themeColor ?? '25'}
-            onChange={hue => setThemeColor(hue)}
-          />
-        </CardContent>
-      </Card>
+        <Card className="border-0 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-1.5">
+              <Palette className="w-4 h-4" /> Warna Tema
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {THEME_COLORS.map(tc => (
+                <button
+                  key={tc.hue}
+                  title={tc.name}
+                  onClick={() => handleThemeChange(tc.hue)}
+                  className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 ${themeHue === tc.hue ? 'border-foreground scale-110' : 'border-transparent'}`}
+                  style={{ backgroundColor: `hsl(${tc.hue} ${tc.saturation} ${tc.lightness})` }}
+                />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
-      {/* Backup & Restore */}
-      {can('manage_backup') && (
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm flex items-center gap-1.5"><Download className="w-4 h-4" /> Backup & Restore</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <Button variant="outline" className="w-full h-10 text-sm gap-2" onClick={exportBackupData}>
-            <Download className="w-4 h-4" /> Export Backup (JSON)
-          </Button>
-          <Button variant="outline" className="w-full h-10 text-sm gap-2" onClick={handleImport}>
-            <Upload className="w-4 h-4" /> Import / Restore Data
-          </Button>
-          {storeSettings?.lastBackupAt && (
-            <p className="text-[10px] text-muted-foreground text-center">Terakhir backup: {new Date(storeSettings.lastBackupAt).toLocaleString('id-ID')}</p>
-          )}
-        </CardContent>
-      </Card>
-      )}
-
-      {/* About */}
+      {/* ── About ────────────────────────────────────────────────────────── */}
       <Card className="border-0 shadow-sm">
         <CardContent className="p-4 text-center space-y-2">
-           <p className="text-sm font-bold">KasirGratisan</p>
-           <p className="text-xs text-muted-foreground">POS Gratis untuk UMKM Indonesia 🇮🇩</p>
-           <p className="text-[10px] text-muted-foreground">v1.0 • Data tersimpan di perangkat</p>
-
-           {/* Links */}
-           <div className="flex flex-col gap-2 pt-2">
-             <a
-               href="https://kasirgratisan.fider.io"
-               target="_blank"
-               rel="noopener noreferrer"
-               className="flex items-center justify-center gap-2 w-full h-9 rounded-lg border border-border bg-muted/50 text-xs font-semibold text-foreground hover:bg-primary/5 hover:border-primary/30 hover:text-primary transition-colors"
-             >
-               💡 Request Fitur
-             </a>
-             <a
-               href="https://traktir.jipraks.com"
-               target="_blank"
-               rel="noopener noreferrer"
-               className="flex items-center justify-center gap-2 w-full h-9 rounded-lg border border-warning/30 bg-warning/5 text-xs font-semibold text-warning hover:bg-warning/10 transition-colors"
-             >
-               ☕ Traktir Kopi untuk Developer
-             </a>
-             <a
-               href="https://t.me/kasirgratisan"
-               target="_blank"
-               rel="noopener noreferrer"
-               className="flex items-center justify-center gap-2 w-full h-9 rounded-lg border border-sky-500/30 bg-sky-500/5 text-xs font-semibold text-sky-600 dark:text-sky-400 hover:bg-sky-500/10 transition-colors"
-             >
-               💬 Gabung Grup Telegram
-             </a>
-           </div>
-           {storageUsage && (
-             <div className="pt-2 border-t">
-               <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground mb-1.5">
-                 <HardDrive className="w-3.5 h-3.5" />
-                 <span>Penyimpanan Terpakai</span>
-               </div>
-               <p className="text-xs font-semibold">
-                 {formatBytes(storageUsage.usage)} / {formatBytes(storageUsage.quota)}
-               </p>
-               <div className="w-full h-1.5 bg-muted rounded-full mt-1.5 overflow-hidden">
-                 <div
-                   className="h-full bg-primary rounded-full transition-all"
-                   style={{ width: `${Math.min(100, (storageUsage.usage / storageUsage.quota) * 100)}%` }}
-                 />
-               </div>
-             </div>
-           )}
+          <p className="text-sm font-bold">KasirGratisan</p>
+          <p className="text-xs text-muted-foreground">POS Gratis untuk UMKM Indonesia 🇮🇩</p>
+          <p className="text-[10px] text-muted-foreground">v2.0 • Data tersimpan di server</p>
+          <div className="flex flex-col gap-2 pt-2">
+            <a
+              href="https://kasirgratisan.fider.io"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 w-full h-9 rounded-lg border border-border bg-muted/50 text-xs font-semibold text-foreground hover:bg-primary/5 hover:border-primary/30 hover:text-primary transition-colors"
+            >
+              💡 Request Fitur
+            </a>
+            <a
+              href="https://traktir.jipraks.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 w-full h-9 rounded-lg border border-warning/30 bg-warning/5 text-xs font-semibold text-warning hover:bg-warning/10 transition-colors"
+            >
+              ☕ Traktir Kopi untuk Developer
+            </a>
+            <a
+              href="https://t.me/kasirgratisan"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 w-full h-9 rounded-lg border border-sky-500/30 bg-sky-500/5 text-xs font-semibold text-sky-600 dark:text-sky-400 hover:bg-sky-500/10 transition-colors"
+            >
+              💬 Gabung Grup Telegram
+            </a>
+          </div>
         </CardContent>
       </Card>
 
-      {/* Install Help Dialog */}
+      {/* ════════════════════════════════════════════════════════════════════
+          DIALOGS
+      ════════════════════════════════════════════════════════════════════ */}
+
+      {/* Install Help */}
       <Dialog open={installHelpOpen} onOpenChange={setInstallHelpOpen}>
         <DialogContent className="max-w-[95vw] rounded-xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Smartphone className="w-5 h-5 text-primary" />
-              Cara Install Aplikasi
+              <Smartphone className="w-5 h-5 text-primary" /> Cara Install Aplikasi
             </DialogTitle>
             <DialogDescription>
-              Browser kamu belum menampilkan tombol install otomatis. Ikuti langkah berikut sesuai perangkat.
+              Browser kamu belum menampilkan tombol install otomatis. Ikuti langkah berikut.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 mt-2">
+          <div className="space-y-3 mt-2">
             {isIOS ? (
-              <div className="space-y-3">
-                <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0 text-xs font-bold">1</div>
-                  <p className="text-sm flex-1">
-                    Buka aplikasi ini di browser <strong>Safari</strong> (bukan Chrome).
-                  </p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0 text-xs font-bold">2</div>
-                  <p className="text-sm flex-1">
-                    Ketuk tombol <Share2 className="w-3.5 h-3.5 inline mx-0.5" /> <strong>Share</strong> di bawah layar.
-                  </p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0 text-xs font-bold">3</div>
-                  <p className="text-sm flex-1">
-                    Pilih <strong>"Add to Home Screen"</strong>, lalu ketuk <strong>Add</strong>.
-                  </p>
-                </div>
-              </div>
+              <>
+                <Step n={1}>Buka di <strong>Safari</strong> (bukan Chrome).</Step>
+                <Step n={2}>Ketuk tombol <Share2 className="w-3.5 h-3.5 inline mx-0.5" /> <strong>Share</strong> di bawah layar.</Step>
+                <Step n={3}>Pilih <strong>"Add to Home Screen"</strong>, lalu ketuk <strong>Add</strong>.</Step>
+              </>
             ) : (
-              <div className="space-y-3">
-                <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0 text-xs font-bold">1</div>
-                  <p className="text-sm flex-1">
-                    Buka aplikasi ini di browser <strong>Chrome</strong> atau <strong>Edge</strong>.
-                  </p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0 text-xs font-bold">2</div>
-                  <p className="text-sm flex-1">
-                    Ketuk menu <strong>(⋮)</strong> di pojok kanan atas browser.
-                  </p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0 text-xs font-bold">3</div>
-                  <p className="text-sm flex-1">
-                    Pilih <strong>"Install app"</strong> atau <strong>"Add to Home screen"</strong>.
-                  </p>
-                </div>
+              <>
+                <Step n={1}>Buka di browser <strong>Chrome</strong> atau <strong>Edge</strong>.</Step>
+                <Step n={2}>Ketuk menu <strong>(⋮)</strong> di pojok kanan atas.</Step>
+                <Step n={3}>Pilih <strong>"Install app"</strong> atau <strong>"Add to Home screen"</strong>.</Step>
                 <div className="rounded-lg bg-muted/60 p-3 text-xs text-muted-foreground flex items-start gap-2">
                   <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                  <span>
-                    Kalau opsi tidak muncul, refresh halaman dulu lalu coba lagi. Beberapa browser butuh kunjungan kedua sebelum menawarkan install.
-                  </span>
+                  <span>Kalau opsi tidak muncul, refresh halaman dulu lalu coba lagi.</span>
                 </div>
-              </div>
+              </>
             )}
           </div>
-          <Button className="w-full mt-2" variant="outline" onClick={() => setInstallHelpOpen(false)}>
-            Tutup
-          </Button>
+          <Button className="w-full mt-2" variant="outline" onClick={() => setInstallHelpOpen(false)}>Tutup</Button>
         </DialogContent>
       </Dialog>
 
-      {/* Store Dialog */}
+      {/* Store Edit */}
       <Dialog open={storeDialog} onOpenChange={setStoreDialog}>
         <DialogContent className="max-w-[95vw] rounded-xl">
           <DialogHeader><DialogTitle>Info Toko</DialogTitle></DialogHeader>
           <div className="space-y-4 mt-2">
-            {/* Logo picker */}
             <div className="space-y-1.5">
-              <Label>Logo Toko</Label>
-              <div className="flex items-center gap-3">
-                <div
-                  className="w-20 h-20 rounded-xl bg-muted border-2 border-dashed border-border flex items-center justify-center overflow-hidden cursor-pointer hover:border-primary/50 transition-colors"
-                  onClick={() => logoInputRef.current?.click()}
-                >
-                  {storeLogo ? (
-                    <img src={storeLogo} alt="Logo" className="w-full h-full object-cover" />
-                  ) : (
-                    <Camera className="w-6 h-6 text-muted-foreground/50" />
-                  )}
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-8 text-xs gap-1.5"
-                    onClick={() => logoInputRef.current?.click()}
-                  >
-                    <Camera className="w-3.5 h-3.5" />
-                    {storeLogo ? 'Ganti Logo' : 'Pilih Logo'}
-                  </Button>
-                  {storeLogo && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 text-xs text-destructive gap-1.5"
-                      onClick={() => setStoreLogo(undefined)}
-                    >
-                      <X className="w-3.5 h-3.5" />
-                      Hapus Logo
-                    </Button>
-                  )}
-                </div>
-                <input
-                  ref={logoInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleLogoSelect}
-                />
-              </div>
+              <Label>Nama Toko</Label>
+              <Input value={storeName} onChange={e => setStoreName(e.target.value)} className="h-11" />
             </div>
-            <div className="space-y-1.5"><Label>Nama Toko</Label><Input value={storeName} onChange={e => setStoreName(e.target.value)} className="h-11" /></div>
-            <div className="space-y-1.5"><Label>Alamat</Label><Input value={storeAddr} onChange={e => setStoreAddr(e.target.value)} className="h-11" /></div>
-            <div className="space-y-1.5"><Label>Telepon</Label><Input value={storePhone} onChange={e => setStorePhone(e.target.value)} className="h-11" type="tel" /></div>
-            <Button className="w-full h-11" onClick={saveStore}>Simpan</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Payment Method Dialog */}
-      <Dialog open={pmDialog} onOpenChange={setPmDialog}>
-        <DialogContent className="max-w-[95vw] rounded-xl">
-          <DialogHeader><DialogTitle>{pmEditId ? 'Edit' : 'Tambah'} Metode Pembayaran</DialogTitle></DialogHeader>
-          <div className="space-y-4 mt-2">
-            <div className="space-y-1.5"><Label>Nama</Label><Input value={pmName} onChange={e => setPmName(e.target.value)} placeholder="Contoh: Transfer BCA" className="h-11" /></div>
             <div className="space-y-1.5">
-              <Label>Kategori</Label>
-              <div className="grid grid-cols-4 gap-2">
-                {['tunai', 'transfer', 'e-wallet', 'qris'].map(c => (
-                  <button key={c} onClick={() => setPmCategory(c)} className={`p-2 rounded-lg text-xs font-semibold border-2 capitalize transition-colors ${pmCategory === c ? 'border-primary bg-primary/5 text-primary' : 'border-muted text-muted-foreground'}`}>{c}</button>
-                ))}
-              </div>
+              <Label>Alamat</Label>
+              <Input value={storeAddr} onChange={e => setStoreAddr(e.target.value)} className="h-11" />
             </div>
-            <Button className="w-full h-11" onClick={savePm} disabled={!pmName.trim()}>Simpan</Button>
+            <div className="space-y-1.5">
+              <Label>Telepon</Label>
+              <Input value={storePhone} onChange={e => setStorePhone(e.target.value)} className="h-11" type="tel" />
+            </div>
+            <Button
+              className="w-full h-11"
+              onClick={saveStore}
+              disabled={updateStoreSetting.isPending}
+            >
+              {updateStoreSetting.isPending ? 'Menyimpan…' : 'Simpan'}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -949,132 +577,69 @@ export default function Pengaturan() {
       {/* Category Dialog */}
       <Dialog open={catDialog} onOpenChange={setCatDialog}>
         <DialogContent className="max-w-[95vw] rounded-xl">
-          <DialogHeader><DialogTitle>{catEditId ? 'Edit' : 'Tambah'} Kategori</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>{catEditId ? 'Edit' : 'Tambah'} Kategori</DialogTitle>
+          </DialogHeader>
           <div className="space-y-4 mt-2">
-            <div className="space-y-1.5"><Label>Nama Kategori</Label><Input value={catName} onChange={e => setCatName(e.target.value)} placeholder="Contoh: Snack" className="h-11" /></div>
+            <div className="space-y-1.5">
+              <Label>Nama Kategori</Label>
+              <Input
+                value={catName}
+                onChange={e => setCatName(e.target.value)}
+                placeholder="Contoh: Snack"
+                className="h-11"
+              />
+            </div>
             <div className="space-y-1.5">
               <Label>Ikon</Label>
               <div className="flex flex-wrap gap-2">
                 {emojiOptions.map(e => (
-                  <button key={e} onClick={() => setCatIcon(e)} className={`w-10 h-10 rounded-lg text-lg flex items-center justify-center border-2 transition-colors ${catIcon === e ? 'border-primary bg-primary/5' : 'border-muted'}`}>{e}</button>
+                  <button
+                    key={e}
+                    onClick={() => setCatIcon(e)}
+                    className={`w-10 h-10 rounded-lg text-lg flex items-center justify-center border-2 transition-colors ${catIcon === e ? 'border-primary bg-primary/5' : 'border-muted'}`}
+                  >
+                    {e}
+                  </button>
                 ))}
               </div>
             </div>
             <div className="space-y-1.5">
               <Label>Warna</Label>
-              <Input type="color" value={catColor} onChange={e => setCatColor(e.target.value)} className="h-11 w-20" />
-            </div>
-            <Button className="w-full h-11" onClick={saveCat} disabled={!catName.trim()}>Simpan</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Multi-User Activation Dialog */}
-      <Dialog open={activateOpen} onOpenChange={setActivateOpen}>
-        <DialogContent className="max-w-[95vw] rounded-xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Aktifkan Multi-User</DialogTitle>
-            <DialogDescription className="text-xs">
-              Buat akun pemilik. Setelah aktif, Anda harus login dengan username & PIN ini setiap kali buka aplikasi.
-              Data toko Anda tetap utuh.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 mt-2">
-            <div className="space-y-1.5">
-              <Label>Nama Anda *</Label>
-              <Input value={actName} onChange={e => setActName(e.target.value)} placeholder="Contoh: Pak Budi" className="h-11" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Username *</Label>
               <Input
-                value={actUsername}
-                onChange={e => setActUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g, ''))}
-                placeholder="Contoh: owner"
-                className="h-11 font-mono"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-              />
-              <p className="text-[10px] text-muted-foreground">3-20 karakter, huruf/angka/underscore. Tidak bisa diubah.</p>
-            </div>
-            <div className="space-y-1.5">
-              <Label>PIN *</Label>
-              <Input
-                type="password"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={6}
-                value={actPin}
-                onChange={e => setActPin(e.target.value.replace(/\D/g, ''))}
-                placeholder="4-6 digit angka"
-                className="h-11 font-mono text-center tracking-widest"
+                type="color"
+                value={catColor}
+                onChange={e => setCatColor(e.target.value)}
+                className="h-11 w-20"
               />
             </div>
-            <div className="space-y-1.5">
-              <Label>Konfirmasi PIN *</Label>
-              <Input
-                type="password"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={6}
-                value={actPinConfirm}
-                onChange={e => setActPinConfirm(e.target.value.replace(/\D/g, ''))}
-                placeholder="Ketik ulang PIN"
-                className="h-11 font-mono text-center tracking-widest"
-              />
-            </div>
-            <div className="bg-warning/10 border border-warning/30 rounded-xl p-3 text-xs text-foreground">
-              <p className="font-semibold mb-1">Penting:</p>
-              <p className="text-muted-foreground">
-                Catat username & PIN dengan baik. Jika lupa, satu-satunya cara untuk reset adalah dengan menghapus
-                data aplikasi (data toko juga terhapus). Pastikan Anda sudah backup.
-              </p>
-            </div>
-            <Button className="w-full h-11" onClick={handleActivateMultiUser} disabled={activating}>
-              {activating ? 'Mengaktifkan…' : 'Aktifkan Multi-User'}
+            <Button
+              className="w-full h-11"
+              onClick={saveCat}
+              disabled={!catName.trim() || createCategory.isPending || updateCategory.isPending}
+            >
+              {createCategory.isPending || updateCategory.isPending ? 'Menyimpan…' : 'Simpan'}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Unit Dialog */}
-      <Dialog open={unitDialog} onOpenChange={setUnitDialog}>
-        <DialogContent className="max-w-[95vw] rounded-xl">
-          <DialogHeader><DialogTitle>{unitEditId ? 'Edit' : 'Tambah'} Satuan</DialogTitle></DialogHeader>
-          <div className="space-y-4 mt-2">
-            <div className="space-y-1.5">
-              <Label>Nama Satuan</Label>
-              <Input
-                value={unitName}
-                onChange={e => setUnitName(e.target.value)}
-                placeholder="Contoh: pak, lusin, mangkok"
-                className="h-11"
-              />
-              {unitEditId && unitOriginalName && unitName.trim() && unitName.trim() !== unitOriginalName && (
-                <p className="text-[11px] text-muted-foreground">
-                  Semua produk yang memakai "{unitOriginalName}" akan otomatis di-rename ke "{unitName.trim()}".
-                </p>
-              )}
-            </div>
-            <Button className="w-full h-11" onClick={saveUnit} disabled={!unitName.trim()}>Simpan</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Disable Multi-User Confirmation */}
-      <AlertDialog open={disableOpen} onOpenChange={setDisableOpen}>
+      {/* Category Delete Confirmation */}
+      <AlertDialog open={catDeleteId !== null} onOpenChange={open => { if (!open) setCatDeleteId(null); }}>
         <AlertDialogContent className="max-w-[90vw] rounded-xl">
           <AlertDialogHeader>
-            <AlertDialogTitle>Nonaktifkan Multi-User?</AlertDialogTitle>
+            <AlertDialogTitle>Hapus Kategori?</AlertDialogTitle>
             <AlertDialogDescription>
-              Aplikasi akan kembali ke mode tanpa login. Akun karyawan tetap tersimpan dan akan aktif kembali
-              jika multi-user diaktifkan lagi. Data transaksi tetap utuh.
+              Produk yang menggunakan kategori ini perlu dikaitkan ulang ke kategori lain.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Batal</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDisableMultiUser} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Nonaktifkan
+            <AlertDialogAction
+              onClick={confirmDeleteCat}
+              className="bg-destructive text-destructive-foreground"
+            >
+              Hapus
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1091,30 +656,27 @@ export default function Pengaturan() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Batal</AlertDialogCancel>
-            <AlertDialogAction onClick={handleLogout} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            <AlertDialogAction
+              onClick={handleLogout}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
               Keluar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  );
+}
 
-      {/* Unit Delete Confirm */}
-      <AlertDialog open={!!unitDeleteTarget} onOpenChange={(o) => { if (!o) setUnitDeleteTarget(null); }}>
-        <AlertDialogContent className="max-w-[90vw] rounded-xl">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Hapus Satuan "{unitDeleteTarget?.name}"?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {unitDeleteUsage > 0
-                ? `Saat ini dipakai oleh ${unitDeleteUsage} produk. Produk yang sudah ada tetap menyimpan satuan "${unitDeleteTarget?.name}", tapi satuan ini tidak akan muncul lagi di pilihan saat tambah/edit produk baru.`
-                : 'Satuan ini tidak dipakai oleh produk manapun. Aman untuk dihapus.'}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Batal</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDeleteUnit} className="bg-destructive text-destructive-foreground">Hapus</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+// ── Helper kecil ──────────────────────────────────────────────────────────────
+function Step({ n, children }: { n: number; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0 text-xs font-bold">
+        {n}
+      </div>
+      <p className="text-sm flex-1">{children}</p>
     </div>
   );
 }
