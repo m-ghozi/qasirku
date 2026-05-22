@@ -1,142 +1,149 @@
-import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type User, type PermissionKey } from '@/lib/db';
 import {
-  hasPermission as checkPermission,
-  restoreSession,
-  saveSession as persistSession,
-  clearSession as clearStoredSession,
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useEffect,
+  type ReactNode,
+} from 'react';
+import {
   login as authLogin,
+  logout as authLogout,
+  getUserFromToken,
+  hasPermission,
+  type AuthUser,
   type LoginResult,
+  type PermissionKey,
 } from '@/lib/auth';
+import { userService } from '@/services/user.service';
+
+// ── Context type ──────────────────────────────────────────────────────────────
 
 interface AuthContextValue {
-  // Whether multi-user mode is active. When false, app behaves like before
-  // (single-user / legacy mode) — `currentUser` is null and `can()` always returns true.
-  multiUserEnabled: boolean;
-  // Whether we're still loading session/settings on first paint.
+  currentUser: AuthUser | null;
+  /** true selama verifikasi sesi pertama kali (GET /users/me belum selesai) */
   loading: boolean;
-  // Logged-in user, or null when in legacy mode or not yet logged in.
-  currentUser: User | null;
-  // Permission check: returns true in legacy mode, otherwise checks user perms.
-  can: (key: PermissionKey) => boolean;
-  // Owner-only flag (manage users, toggle multi-user, etc.)
   isOwner: boolean;
+  can: (key: PermissionKey) => boolean;
   login: (username: string, pin: string) => Promise<LoginResult>;
   logout: () => void;
-  // Refresh currentUser from DB (e.g. after permission changes).
+  /**
+   * Ambil ulang data user dari server (GET /users/me).
+   * Dipanggil setelah owner mengubah permissions staff yang sedang login,
+   * sehingga perubahan langsung berlaku tanpa logout.
+   */
   refresh: () => Promise<void>;
 }
 
+// ── Context ───────────────────────────────────────────────────────────────────
+
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+// ── Provider ──────────────────────────────────────────────────────────────────
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const storeSettings = useLiveQuery(() => db.storeSettings.toCollection().first());
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [sessionRestored, setSessionRestored] = useState(false);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [loading, setLoading]         = useState(true);
 
-  const multiUserEnabled = !!storeSettings?.multiUserEnabled;
-
-  // Restore session on mount (only matters if multi-user is on).
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const user = await restoreSession();
-      if (!cancelled) {
-        setCurrentUser(user);
-        setSessionRestored(true);
+    /**
+     * Urutan inisialisasi:
+     * 1. Decode token lokal → tampilkan UI instan (tidak ada flicker loading)
+     * 2. Panggil GET /users/me → update dengan data terbaru dari server
+     *    (permissions bisa saja sudah berubah sejak token dibuat)
+     * 3. Kalau /users/me gagal (token kedaluwarsa / akun nonaktif) → logout
+     */
+    const initSession = async () => {
+      // Step 1 — optimistic: langsung pakai data dari token agar UI tidak beku
+      const tokenUser = getUserFromToken();
+      if (!tokenUser) {
+        // Tidak ada token → tidak perlu hit server
+        setLoading(false);
+        return;
       }
-    })();
-    return () => {
-      cancelled = true;
+      setCurrentUser(tokenUser);
+
+      // Step 2 — verifikasi & sinkronisasi dengan server
+      try {
+        const serverUser = await userService.getMe();
+
+        // Akun dinonaktifkan oleh owner → paksa logout
+        if (!serverUser.isActive) {
+          authLogout();
+          setCurrentUser(null);
+          return;
+        }
+
+        // Update state dengan data terbaru (nama / role / permissions bisa berubah)
+        setCurrentUser(serverUser);
+      } catch {
+        // 401 ditangani oleh axios interceptor (auto-logout + reload)
+        // Error lain (misal network down) → biarkan token user tetap dipakai
+        // supaya app bisa digunakan dalam kondisi offline sementara
+      } finally {
+        setLoading(false);
+      }
     };
+
+    initSession();
   }, []);
 
-  // Live-refresh the in-memory user when their row changes (permission edit etc.).
-  // We bind to the DB row by id so updates from User Management page propagate.
-  useEffect(() => {
-    if (!currentUser?.id) return;
-    const id = currentUser.id;
-    const sub = db.users.hook('updating', (mods, primKey) => {
-      if (primKey === id) {
-        // Defer so the update is committed first, then re-read.
-        queueMicrotask(async () => {
-          const fresh = await db.users.get(id);
-          if (!fresh || !fresh.isActive) {
-            // Account deactivated → kick out
-            clearStoredSession();
-            setCurrentUser(null);
-            return;
-          }
-          setCurrentUser(fresh);
-        });
-      }
-    });
-    return () => {
-      db.users.hook('updating').unsubscribe(sub);
-    };
-  }, [currentUser?.id]);
+  // ── Login ──────────────────────────────────────────────────────────────────
 
   const login = useCallback(async (username: string, pin: string): Promise<LoginResult> => {
     const result = await authLogin(username, pin);
-    if (result.ok && result.user?.id) {
-      const settings = await db.storeSettings.toCollection().first();
-      if (settings?.deviceId) {
-        persistSession(result.user.id, settings.deviceId);
-      }
+    if (result.ok && result.user) {
       setCurrentUser(result.user);
     }
     return result;
   }, []);
 
+  // ── Logout ─────────────────────────────────────────────────────────────────
+
   const logout = useCallback(() => {
-    clearStoredSession();
+    authLogout();
     setCurrentUser(null);
   }, []);
 
-  const refresh = useCallback(async () => {
-    if (!currentUser?.id) return;
-    const fresh = await db.users.get(currentUser.id);
-    if (!fresh || !fresh.isActive) {
-      clearStoredSession();
-      setCurrentUser(null);
-      return;
+  // ── Refresh (hit /users/me) ────────────────────────────────────────────────
+
+  const refresh = useCallback(async (): Promise<void> => {
+    try {
+      const serverUser = await userService.getMe();
+      if (!serverUser.isActive) {
+        // Akun dinonaktifkan saat sedang login → paksa keluar
+        authLogout();
+        setCurrentUser(null);
+        return;
+      }
+      setCurrentUser(serverUser);
+    } catch {
+      // 401 → interceptor sudah handle; error lain diabaikan
     }
-    setCurrentUser(fresh);
-  }, [currentUser?.id]);
+  }, []);
+
+  // ── Permission check ───────────────────────────────────────────────────────
 
   const can = useCallback(
-    (key: PermissionKey): boolean => {
-      // Legacy / single-user mode: everything is allowed (backwards compatible).
-      if (!multiUserEnabled) return true;
-      return checkPermission(currentUser, key);
-    },
-    [multiUserEnabled, currentUser]
+    (key: PermissionKey): boolean => hasPermission(currentUser, key),
+    [currentUser]
   );
 
-  const isOwner = !multiUserEnabled || currentUser?.role === 'owner';
+  const isOwner = currentUser?.role === 'owner';
 
-  // Loading: still waiting on storeSettings or first session restore attempt.
-  const loading = storeSettings === undefined || !sessionRestored;
-
-  const value: AuthContextValue = {
-    multiUserEnabled,
-    loading,
-    currentUser,
-    can,
-    isOwner,
-    login,
-    logout,
-    refresh,
-  };
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider
+      value={{ currentUser, loading, isOwner, can, login, logout, refresh }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
 }
+
+// ── Hook ──────────────────────────────────────────────────────────────────────
 
 export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
-  if (!ctx) {
-    throw new Error('useAuth must be used inside <AuthProvider>');
-  }
+  if (!ctx) throw new Error('useAuth must be used inside <AuthProvider>');
   return ctx;
 }
