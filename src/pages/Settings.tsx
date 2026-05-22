@@ -4,13 +4,11 @@
  * Perubahan dari versi Dexie:
  *  - Semua operasi db.* dihapus
  *  - Kategori  → useCategories / useCreateCategory / useUpdateCategory / useDeleteCategory
- *  - PaymentMethods → tidak ada di backend baru (belum ada endpoint); dipertahankan sebagai
- *    placeholder sampai endpoint /payment-methods tersedia
  *  - StoreSetting  → useStoreSetting / useUpdateStoreSetting
- *  - Units → belum ada endpoint backend; dipertahankan sebagai placeholder
- *  - Backup/Restore → dihapus (data ada di server, bukan IndexedDB)
- *  - Multi-user / users → gunakan useUsers / useCreateUser / useUpdateUser / useDeleteUser
- *  - Tema warna  → tetap lokal (CSS variable, tidak perlu API)
+ *  - Units → useUnits / useCreateUnit / useUpdateUnit / useDeleteUnit
+ *  - Multi-user / users → useUsers
+ *  - Backup/Restore → dihapus (data ada di server)
+ *  - Tema warna → tetap lokal (CSS variable)
  *  - PWA install → tidak berubah (browser API)
  *  - Auth (logout) → useAuth().logout()
  */
@@ -19,7 +17,6 @@ import { useState, useRef } from 'react';
 import {
   Settings,
   Store,
-  CreditCard,
   Tag,
   Plus,
   Trash2,
@@ -31,8 +28,6 @@ import {
   Receipt,
   Palette,
   Package,
-  Camera,
-  X,
   Ruler,
   Users as UsersIcon,
   ShieldCheck,
@@ -50,7 +45,6 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
-import { compressImage } from '@/lib/image-utils';
 import { useAuth } from '@/hooks/use-auth';
 import { usePWAInstall } from '@/hooks/use-pwa-install';
 import {
@@ -59,12 +53,18 @@ import {
   useUpdateCategory,
   useDeleteCategory,
 } from '@/hooks/use-categories';
+import {
+  useUnits,
+  useCreateUnit,
+  useUpdateUnit,
+  useDeleteUnit,
+} from '@/hooks/use-units';
 import { useStoreSetting, useUpdateStoreSetting } from '@/hooks/use-store-setting';
 import { useUsers } from '@/hooks/use-users';
 import type { Category } from '@/services/category.service';
+import type { Unit } from '@/services/unit.service';
 
-// ── Warna tema (lokal, tidak butuh API) ──────────────────────────────────────
-import ThemeColorPicker from '@/components/ThemeColorPicker';
+// ── Warna tema (lokal) ────────────────────────────────────────────────────────
 
 const THEME_COLORS = [
   { name: 'Oranye', hue: '25', saturation: '95%', lightness: '53%' },
@@ -89,7 +89,6 @@ function applyThemeColor(hue: string) {
   document.documentElement.style.setProperty('--ring', hsl);
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', `hsl(${hsl})`);
-  // Simpan lokal di localStorage agar persist lintas reload
   localStorage.setItem('themeColorHue', hue);
 }
 
@@ -103,7 +102,7 @@ export default function Pengaturan() {
   const { currentUser, isOwner, can, logout } = useAuth();
   const { canInstall, isInstalled, isIOS, install } = usePWAInstall();
 
-  // ── API data ─────────────────────────────────────────────────────────────
+  // ── API data ──────────────────────────────────────────────────────────────
   const { data: storeSetting } = useStoreSetting();
   const updateStoreSetting = useUpdateStoreSetting();
 
@@ -111,6 +110,11 @@ export default function Pengaturan() {
   const createCategory = useCreateCategory();
   const updateCategory = useUpdateCategory();
   const deleteCategory = useDeleteCategory();
+
+  const { data: units = [] } = useUnits();
+  const createUnit = useCreateUnit();
+  const updateUnit = useUpdateUnit();
+  const deleteUnit = useDeleteUnit();
 
   const { data: users = [] } = useUsers();
 
@@ -127,7 +131,6 @@ export default function Pengaturan() {
   const [storeAddr, setStoreAddr] = useState('');
   const [storePhone, setStorePhone] = useState('');
   const [storeFooter, setStoreFooter] = useState('');
-  const logoInputRef = useRef<HTMLInputElement>(null);
 
   // Category
   const [catDialog, setCatDialog] = useState(false);
@@ -136,6 +139,13 @@ export default function Pengaturan() {
   const [catColor, setCatColor] = useState('#FF6B35');
   const [catEditId, setCatEditId] = useState<number | null>(null);
   const [catDeleteId, setCatDeleteId] = useState<number | null>(null);
+
+  // Unit
+  const [unitDialog, setUnitDialog] = useState(false);
+  const [unitName, setUnitName] = useState('');
+  const [unitIsDefault, setUnitIsDefault] = useState(false);
+  const [unitEditId, setUnitEditId] = useState<number | null>(null);
+  const [unitDeleteTarget, setUnitDeleteTarget] = useState<Unit | null>(null);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -155,9 +165,7 @@ export default function Pengaturan() {
         phone: storePhone.trim(),
         receiptFooter: storeFooter.trim(),
       },
-      {
-        onSuccess: () => setStoreDialog(false),
-      }
+      { onSuccess: () => setStoreDialog(false) }
     );
   };
 
@@ -197,6 +205,43 @@ export default function Pengaturan() {
     if (catDeleteId == null) return;
     deleteCategory.mutate(catDeleteId, {
       onSuccess: () => setCatDeleteId(null),
+    });
+  };
+
+  // Unit handlers
+  const openUnitAdd = () => {
+    setUnitEditId(null);
+    setUnitName('');
+    setUnitIsDefault(false);
+    setUnitDialog(true);
+  };
+
+  const openUnitEdit = (u: Unit) => {
+    setUnitEditId(u.id);
+    setUnitName(u.name);
+    setUnitIsDefault(u.isDefault);
+    setUnitDialog(true);
+  };
+
+  const saveUnit = () => {
+    if (!unitName.trim()) return;
+    if (unitEditId) {
+      updateUnit.mutate(
+        { id: unitEditId, payload: { name: unitName.trim(), isDefault: unitIsDefault } },
+        { onSuccess: () => setUnitDialog(false) }
+      );
+    } else {
+      createUnit.mutate(
+        { name: unitName.trim(), isDefault: unitIsDefault },
+        { onSuccess: () => setUnitDialog(false) }
+      );
+    }
+  };
+
+  const confirmDeleteUnit = () => {
+    if (!unitDeleteTarget) return;
+    deleteUnit.mutate(unitDeleteTarget.id, {
+      onSuccess: () => setUnitDeleteTarget(null),
     });
   };
 
@@ -452,6 +497,50 @@ export default function Pengaturan() {
         </Card>
       )}
 
+      {/* ── Satuan ───────────────────────────────────────────────────────── */}
+      <Card className="border-0 shadow-sm">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm flex items-center gap-1.5">
+              <Ruler className="w-4 h-4" /> Satuan
+            </CardTitle>
+            <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={openUnitAdd}>
+              <Plus className="w-3 h-3" /> Tambah
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-1">
+          {units.length === 0 && (
+            <p className="text-xs text-muted-foreground py-1.5">Belum ada satuan</p>
+          )}
+          {units.map(u => (
+            <div key={u.id} className="flex items-center justify-between py-1.5">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium">{u.name}</span>
+                {u.isDefault && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
+                    Default
+                  </span>
+                )}
+              </div>
+              <div className="flex gap-1">
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openUnitEdit(u)}>
+                  <Edit2 className="w-3 h-3" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-destructive"
+                  onClick={() => setUnitDeleteTarget(u)}
+                >
+                  <Trash2 className="w-3 h-3" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
       {/* ── Warna Tema ───────────────────────────────────────────────────── */}
       {can('manage_store_settings') && (
         <Card className="border-0 shadow-sm">
@@ -647,6 +736,75 @@ export default function Pengaturan() {
               className="bg-destructive text-destructive-foreground"
             >
               Hapus
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Unit Dialog */}
+      <Dialog open={unitDialog} onOpenChange={setUnitDialog}>
+        <DialogContent className="max-w-[95vw] rounded-xl">
+          <DialogHeader>
+            <DialogTitle>{unitEditId ? 'Edit' : 'Tambah'} Satuan</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div className="space-y-1.5">
+              <Label>Nama Satuan</Label>
+              <Input
+                value={unitName}
+                onChange={e => setUnitName(e.target.value)}
+                placeholder="Contoh: pak, lusin, mangkok"
+                className="h-11"
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+              <div>
+                <p className="text-sm font-medium">Jadikan Default</p>
+                <p className="text-[10px] text-muted-foreground">
+                  Satuan ini otomatis terpilih saat tambah produk baru
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={unitIsDefault}
+                onClick={() => setUnitIsDefault(v => !v)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${unitIsDefault ? 'bg-primary' : 'bg-muted-foreground/30'}`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${unitIsDefault ? 'translate-x-6' : 'translate-x-1'}`}
+                />
+              </button>
+            </div>
+            <Button
+              className="w-full h-11"
+              onClick={saveUnit}
+              disabled={!unitName.trim() || createUnit.isPending || updateUnit.isPending}
+            >
+              {createUnit.isPending || updateUnit.isPending ? 'Menyimpan…' : 'Simpan'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Unit Delete Confirmation */}
+      <AlertDialog open={!!unitDeleteTarget} onOpenChange={open => { if (!open) setUnitDeleteTarget(null); }}>
+        <AlertDialogContent className="max-w-[90vw] rounded-xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Hapus Satuan "{unitDeleteTarget?.name}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Produk yang sudah memakai satuan ini tetap tersimpan, tapi satuan tidak akan muncul
+              lagi di pilihan saat tambah atau edit produk baru.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Batal</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteUnit}
+              className="bg-destructive text-destructive-foreground"
+              disabled={deleteUnit.isPending}
+            >
+              {deleteUnit.isPending ? 'Menghapus…' : 'Hapus'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
