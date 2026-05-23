@@ -1,19 +1,14 @@
 /**
- * Settings.tsx — MIGRATED (Step 3)
+ * Settings.tsx
  *
- * Perubahan dari versi Dexie:
- *  - Semua operasi db.* dihapus
- *  - Kategori  → useCategories / useCreateCategory / useUpdateCategory / useDeleteCategory
- *  - StoreSetting  → useStoreSetting / useUpdateStoreSetting
- *  - Units → useUnits / useCreateUnit / useUpdateUnit / useDeleteUnit
- *  - Multi-user / users → useUsers
- *  - Backup/Restore → dihapus (data ada di server)
- *  - Tema warna → tetap lokal (CSS variable)
- *  - PWA install → tidak berubah (browser API)
- *  - Auth (logout) → useAuth().logout()
+ * Perubahan dari versi sebelumnya:
+ *  - Tambah section "Metode Pembayaran" di bawah Kategori Produk
+ *  - Hooks: usePaymentMethods / useCreatePaymentMethod / useUpdatePaymentMethod
+ *           / useDeactivatePaymentMethod / useDeletePaymentMethod / useSetDefaultPaymentMethod
+ *  - Guard: can('manage_categories_payments') — sama dengan kategori
  */
 
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import {
   Settings,
   Store,
@@ -36,6 +31,9 @@ import {
   Share2,
   Info,
   Download,
+  CreditCard,
+  Star,
+  EyeOff,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -59,12 +57,28 @@ import {
   useUpdateUnit,
   useDeleteUnit,
 } from '@/hooks/use-units';
+import {
+  usePaymentMethods,
+  useCreatePaymentMethod,
+  useUpdatePaymentMethod,
+  useDeactivatePaymentMethod,
+  useDeletePaymentMethod,
+  useSetDefaultPaymentMethod,
+} from '@/hooks/use-payment-methods';
 import { useStoreSetting, useUpdateStoreSetting } from '@/hooks/use-store-setting';
 import { useUsers } from '@/hooks/use-users';
 import type { Category } from '@/services/category.service';
 import type { Unit } from '@/services/unit.service';
+import type { PaymentMethod, PaymentCategory } from '@/services/paymentMethod.service';
 
-// ── Warna tema (lokal) ────────────────────────────────────────────────────────
+// ── Konstanta ─────────────────────────────────────────────────────────────────
+
+const PAYMENT_CATEGORIES: { value: PaymentCategory; label: string; emoji: string }[] = [
+  { value: 'tunai', label: 'Tunai', emoji: '💵' },
+  { value: 'transfer', label: 'Transfer', emoji: '🏦' },
+  { value: 'qris', label: 'QRIS', emoji: '📷' },
+  { value: 'e-wallet', label: 'E-Wallet', emoji: '📱' },
+];
 
 const THEME_COLORS = [
   { name: 'Oranye', hue: '25', saturation: '95%', lightness: '53%' },
@@ -116,6 +130,13 @@ export default function Pengaturan() {
   const updateUnit = useUpdateUnit();
   const deleteUnit = useDeleteUnit();
 
+  const { data: paymentMethods = [] } = usePaymentMethods(true); // includeInactive=true agar bisa kelola semua
+  const createPaymentMethod = useCreatePaymentMethod();
+  const updatePaymentMethod = useUpdatePaymentMethod();
+  const deactivatePaymentMethod = useDeactivatePaymentMethod();
+  const deletePaymentMethod = useDeletePaymentMethod();
+  const setDefaultPaymentMethod = useSetDefaultPaymentMethod();
+
   const { data: users = [] } = useUsers();
 
   // ── Tema warna lokal ──────────────────────────────────────────────────────
@@ -147,7 +168,16 @@ export default function Pengaturan() {
   const [unitEditId, setUnitEditId] = useState<number | null>(null);
   const [unitDeleteTarget, setUnitDeleteTarget] = useState<Unit | null>(null);
 
-  // ── Handlers ──────────────────────────────────────────────────────────────
+  // Payment Method
+  const [pmDialog, setPmDialog] = useState(false);
+  const [pmName, setPmName] = useState('');
+  const [pmCategory, setPmCategory] = useState<PaymentCategory>('tunai');
+  const [pmIsDefault, setPmIsDefault] = useState(false);
+  const [pmEditId, setPmEditId] = useState<number | null>(null);
+  const [pmDeactivateTarget, setPmDeactivateTarget] = useState<PaymentMethod | null>(null);
+  const [pmDeleteTarget, setPmDeleteTarget] = useState<PaymentMethod | null>(null);
+
+  // ── Store handlers ────────────────────────────────────────────────────────
 
   const openStoreEdit = () => {
     setStoreName(storeSetting?.storeName ?? '');
@@ -169,20 +199,15 @@ export default function Pengaturan() {
     );
   };
 
-  // Category handlers
+  // ── Category handlers ─────────────────────────────────────────────────────
+
   const openCatAdd = () => {
-    setCatEditId(null);
-    setCatName('');
-    setCatIcon('📦');
-    setCatColor('#FF6B35');
+    setCatEditId(null); setCatName(''); setCatIcon('📦'); setCatColor('#FF6B35');
     setCatDialog(true);
   };
 
   const openCatEdit = (c: Category) => {
-    setCatEditId(c.id);
-    setCatName(c.name);
-    setCatIcon(c.icon);
-    setCatColor(c.color);
+    setCatEditId(c.id); setCatName(c.name); setCatIcon(c.icon); setCatColor(c.color);
     setCatDialog(true);
   };
 
@@ -203,23 +228,18 @@ export default function Pengaturan() {
 
   const confirmDeleteCat = () => {
     if (catDeleteId == null) return;
-    deleteCategory.mutate(catDeleteId, {
-      onSuccess: () => setCatDeleteId(null),
-    });
+    deleteCategory.mutate(catDeleteId, { onSuccess: () => setCatDeleteId(null) });
   };
 
-  // Unit handlers
+  // ── Unit handlers ─────────────────────────────────────────────────────────
+
   const openUnitAdd = () => {
-    setUnitEditId(null);
-    setUnitName('');
-    setUnitIsDefault(false);
+    setUnitEditId(null); setUnitName(''); setUnitIsDefault(false);
     setUnitDialog(true);
   };
 
   const openUnitEdit = (u: Unit) => {
-    setUnitEditId(u.id);
-    setUnitName(u.name);
-    setUnitIsDefault(u.isDefault);
+    setUnitEditId(u.id); setUnitName(u.name); setUnitIsDefault(u.isDefault);
     setUnitDialog(true);
   };
 
@@ -240,10 +260,51 @@ export default function Pengaturan() {
 
   const confirmDeleteUnit = () => {
     if (!unitDeleteTarget) return;
-    deleteUnit.mutate(unitDeleteTarget.id, {
-      onSuccess: () => setUnitDeleteTarget(null),
+    deleteUnit.mutate(unitDeleteTarget.id, { onSuccess: () => setUnitDeleteTarget(null) });
+  };
+
+  // ── Payment Method handlers ───────────────────────────────────────────────
+
+  const openPmAdd = () => {
+    setPmEditId(null); setPmName(''); setPmCategory('tunai'); setPmIsDefault(false);
+    setPmDialog(true);
+  };
+
+  const openPmEdit = (pm: PaymentMethod) => {
+    setPmEditId(pm.id); setPmName(pm.name); setPmCategory(pm.category); setPmIsDefault(pm.isDefault);
+    setPmDialog(true);
+  };
+
+  const savePm = () => {
+    if (!pmName.trim()) return;
+    if (pmEditId) {
+      updatePaymentMethod.mutate(
+        { id: pmEditId, payload: { name: pmName.trim(), category: pmCategory, isDefault: pmIsDefault } },
+        { onSuccess: () => setPmDialog(false) }
+      );
+    } else {
+      createPaymentMethod.mutate(
+        { name: pmName.trim(), category: pmCategory, isDefault: pmIsDefault },
+        { onSuccess: () => setPmDialog(false) }
+      );
+    }
+  };
+
+  const confirmDeactivatePm = () => {
+    if (!pmDeactivateTarget) return;
+    deactivatePaymentMethod.mutate(pmDeactivateTarget.id, {
+      onSuccess: () => setPmDeactivateTarget(null),
     });
   };
+
+  const confirmDeletePm = () => {
+    if (!pmDeleteTarget) return;
+    deletePaymentMethod.mutate(pmDeleteTarget.id, {
+      onSuccess: () => setPmDeleteTarget(null),
+    });
+  };
+
+  // ── Theme ─────────────────────────────────────────────────────────────────
 
   const handleThemeChange = (hue: string) => {
     setThemeHue(hue);
@@ -257,6 +318,8 @@ export default function Pengaturan() {
   };
 
   const emojiOptions = ['📦', '🍕', '🥤', '🍜', '🧃', '🎽', '💊', '🧹', '📱', '🛒', '🎁', '✂️'];
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="px-4 pt-6 pb-4 space-y-5">
@@ -340,7 +403,7 @@ export default function Pengaturan() {
         </Card>
       )}
 
-      {/* ── Karyawan & Akses (hanya owner) ──────────────────────────────── */}
+      {/* ── Karyawan & Akses ─────────────────────────────────────────────── */}
       {isOwner && (
         <div className="space-y-2">
           <h2 className="text-sm font-semibold text-muted-foreground">Karyawan & Akses</h2>
@@ -450,51 +513,147 @@ export default function Pengaturan() {
         )}
       </div>
 
-      {/* ── Kategori Produk ──────────────────────────────────────────────── */}
+      {/* ── Kategori Produk & Metode Pembayaran ─────────────────────────── */}
       {can('manage_categories_payments') && (
-        <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm flex items-center gap-1.5">
-                <Tag className="w-4 h-4" /> Kategori Produk
-              </CardTitle>
-              <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={openCatAdd}>
-                <Plus className="w-3 h-3" /> Tambah
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-1">
-            {categories.length === 0 && (
-              <p className="text-xs text-muted-foreground py-1.5">Belum ada kategori</p>
-            )}
-            {categories.map(c => (
-              <div key={c.id} className="flex items-center justify-between py-1.5">
-                <div className="flex items-center gap-2">
-                  <span
-                    className="w-6 h-6 rounded flex items-center justify-center text-sm"
-                    style={{ backgroundColor: c.color + '20' }}
-                  >
-                    {c.icon}
-                  </span>
-                  <span className="text-sm font-medium">{c.name}</span>
-                </div>
-                <div className="flex gap-1">
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openCatEdit(c)}>
-                    <Edit2 className="w-3 h-3" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-destructive"
-                    onClick={() => setCatDeleteId(c.id)}
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
-                </div>
+        <>
+          {/* Kategori */}
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm flex items-center gap-1.5">
+                  <Tag className="w-4 h-4" /> Kategori Produk
+                </CardTitle>
+                <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={openCatAdd}>
+                  <Plus className="w-3 h-3" /> Tambah
+                </Button>
               </div>
-            ))}
-          </CardContent>
-        </Card>
+            </CardHeader>
+            <CardContent className="space-y-1">
+              {categories.length === 0 && (
+                <p className="text-xs text-muted-foreground py-1.5">Belum ada kategori</p>
+              )}
+              {categories.map(c => (
+                <div key={c.id} className="flex items-center justify-between py-1.5">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="w-6 h-6 rounded flex items-center justify-center text-sm"
+                      style={{ backgroundColor: c.color + '20' }}
+                    >
+                      {c.icon}
+                    </span>
+                    <span className="text-sm font-medium">{c.name}</span>
+                  </div>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openCatEdit(c)}>
+                      <Edit2 className="w-3 h-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-destructive"
+                      onClick={() => setCatDeleteId(c.id)}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          {/* Metode Pembayaran */}
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm flex items-center gap-1.5">
+                  <CreditCard className="w-4 h-4" /> Metode Pembayaran
+                </CardTitle>
+                <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={openPmAdd}>
+                  <Plus className="w-3 h-3" /> Tambah
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-1">
+              {paymentMethods.length === 0 && (
+                <p className="text-xs text-muted-foreground py-1.5">Belum ada metode pembayaran</p>
+              )}
+              {paymentMethods.map(pm => {
+                const cat = PAYMENT_CATEGORIES.find(c => c.value === pm.category);
+                return (
+                  <div
+                    key={pm.id}
+                    className={`flex items-center justify-between py-1.5 ${!pm.isActive ? 'opacity-40' : ''}`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-base w-6 text-center shrink-0">{cat?.emoji ?? '💳'}</span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{pm.name}</p>
+                        <p className="text-[10px] text-muted-foreground">{cat?.label ?? pm.category}</p>
+                      </div>
+                      {pm.isDefault && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium shrink-0">
+                          Default
+                        </span>
+                      )}
+                      {!pm.isActive && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium shrink-0">
+                          Nonaktif
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      {/* Jadikan default */}
+                      {!pm.isDefault && pm.isActive && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground"
+                          title="Jadikan Default"
+                          onClick={() => setDefaultPaymentMethod.mutate(pm.id)}
+                        >
+                          <Star className="w-3 h-3" />
+                        </Button>
+                      )}
+                      {/* Edit */}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => openPmEdit(pm)}
+                      >
+                        <Edit2 className="w-3 h-3" />
+                      </Button>
+                      {/* Nonaktifkan / Aktifkan */}
+                      {!pm.isDefault && pm.isActive && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground"
+                          title="Nonaktifkan"
+                          onClick={() => setPmDeactivateTarget(pm)}
+                        >
+                          <EyeOff className="w-3 h-3" />
+                        </Button>
+                      )}
+                      {/* Hapus permanen — hanya yang nonaktif */}
+                      {!pm.isActive && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-destructive"
+                          title="Hapus Permanen"
+                          onClick={() => setPmDeleteTarget(pm)}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        </>
       )}
 
       {/* ── Satuan ───────────────────────────────────────────────────────── */}
@@ -659,11 +818,7 @@ export default function Pengaturan() {
               <Label>Receipt Footer</Label>
               <Input value={storeFooter} onChange={e => setStoreFooter(e.target.value)} className="h-11" />
             </div>
-            <Button
-              className="w-full h-11"
-              onClick={saveStore}
-              disabled={updateStoreSetting.isPending}
-            >
+            <Button className="w-full h-11" onClick={saveStore} disabled={updateStoreSetting.isPending}>
               {updateStoreSetting.isPending ? 'Menyimpan…' : 'Simpan'}
             </Button>
           </div>
@@ -679,12 +834,7 @@ export default function Pengaturan() {
           <div className="space-y-4 mt-2">
             <div className="space-y-1.5">
               <Label>Nama Kategori</Label>
-              <Input
-                value={catName}
-                onChange={e => setCatName(e.target.value)}
-                placeholder="Contoh: Snack"
-                className="h-11"
-              />
+              <Input value={catName} onChange={e => setCatName(e.target.value)} placeholder="Contoh: Snack" className="h-11" />
             </div>
             <div className="space-y-1.5">
               <Label>Ikon</Label>
@@ -702,12 +852,7 @@ export default function Pengaturan() {
             </div>
             <div className="space-y-1.5">
               <Label>Warna</Label>
-              <Input
-                type="color"
-                value={catColor}
-                onChange={e => setCatColor(e.target.value)}
-                className="h-11 w-20"
-              />
+              <Input type="color" value={catColor} onChange={e => setCatColor(e.target.value)} className="h-11 w-20" />
             </div>
             <Button
               className="w-full h-11"
@@ -720,7 +865,7 @@ export default function Pengaturan() {
         </DialogContent>
       </Dialog>
 
-      {/* Category Delete Confirmation */}
+      {/* Category Delete */}
       <AlertDialog open={catDeleteId !== null} onOpenChange={open => { if (!open) setCatDeleteId(null); }}>
         <AlertDialogContent className="max-w-[90vw] rounded-xl">
           <AlertDialogHeader>
@@ -731,11 +876,116 @@ export default function Pengaturan() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Batal</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmDeleteCat}
-              className="bg-destructive text-destructive-foreground"
-            >
+            <AlertDialogAction onClick={confirmDeleteCat} className="bg-destructive text-destructive-foreground">
               Hapus
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Payment Method Dialog */}
+      <Dialog open={pmDialog} onOpenChange={setPmDialog}>
+        <DialogContent className="max-w-[95vw] rounded-xl">
+          <DialogHeader>
+            <DialogTitle>{pmEditId ? 'Edit' : 'Tambah'} Metode Pembayaran</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div className="space-y-1.5">
+              <Label>Nama</Label>
+              <Input
+                value={pmName}
+                onChange={e => setPmName(e.target.value)}
+                placeholder="Contoh: GoPay, Dana, BCA"
+                className="h-11"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Kategori</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {PAYMENT_CATEGORIES.map(c => (
+                  <button
+                    key={c.value}
+                    type="button"
+                    onClick={() => setPmCategory(c.value)}
+                    className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition-colors ${pmCategory === c.value
+                        ? 'border-primary bg-primary/5 text-primary'
+                        : 'border-muted text-muted-foreground'
+                      }`}
+                  >
+                    <span>{c.emoji}</span>
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+              <div>
+                <p className="text-sm font-medium">Jadikan Default</p>
+                <p className="text-[10px] text-muted-foreground">
+                  Otomatis terpilih saat kasir buka transaksi baru
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={pmIsDefault}
+                onClick={() => setPmIsDefault(v => !v)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${pmIsDefault ? 'bg-primary' : 'bg-muted-foreground/30'}`}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${pmIsDefault ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+            <Button
+              className="w-full h-11"
+              onClick={savePm}
+              disabled={!pmName.trim() || createPaymentMethod.isPending || updatePaymentMethod.isPending}
+            >
+              {createPaymentMethod.isPending || updatePaymentMethod.isPending ? 'Menyimpan…' : 'Simpan'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment Method Deactivate */}
+      <AlertDialog open={!!pmDeactivateTarget} onOpenChange={open => { if (!open) setPmDeactivateTarget(null); }}>
+        <AlertDialogContent className="max-w-[90vw] rounded-xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Nonaktifkan "{pmDeactivateTarget?.name}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Metode ini tidak akan muncul di pilihan transaksi baru, tapi riwayat transaksi lama tetap aman.
+              Kamu bisa aktifkan lagi kapan saja lewat tombol Edit.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Batal</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeactivatePm}
+              disabled={deactivatePaymentMethod.isPending}
+            >
+              {deactivatePaymentMethod.isPending ? 'Memproses…' : 'Nonaktifkan'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Payment Method Hard Delete */}
+      <AlertDialog open={!!pmDeleteTarget} onOpenChange={open => { if (!open) setPmDeleteTarget(null); }}>
+        <AlertDialogContent className="max-w-[90vw] rounded-xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Hapus Permanen "{pmDeleteTarget?.name}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Metode yang sudah dipakai di transaksi tidak dapat dihapus. Jika berhasil, data tidak bisa
+              dipulihkan.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Batal</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeletePm}
+              className="bg-destructive text-destructive-foreground"
+              disabled={deletePaymentMethod.isPending}
+            >
+              {deletePaymentMethod.isPending ? 'Menghapus…' : 'Hapus Permanen'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -771,9 +1021,7 @@ export default function Pengaturan() {
                 onClick={() => setUnitIsDefault(v => !v)}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${unitIsDefault ? 'bg-primary' : 'bg-muted-foreground/30'}`}
               >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${unitIsDefault ? 'translate-x-6' : 'translate-x-1'}`}
-                />
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${unitIsDefault ? 'translate-x-6' : 'translate-x-1'}`} />
               </button>
             </div>
             <Button
@@ -787,7 +1035,7 @@ export default function Pengaturan() {
         </DialogContent>
       </Dialog>
 
-      {/* Unit Delete Confirmation */}
+      {/* Unit Delete */}
       <AlertDialog open={!!unitDeleteTarget} onOpenChange={open => { if (!open) setUnitDeleteTarget(null); }}>
         <AlertDialogContent className="max-w-[90vw] rounded-xl">
           <AlertDialogHeader>
@@ -810,7 +1058,7 @@ export default function Pengaturan() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Logout Confirmation */}
+      {/* Logout */}
       <AlertDialog open={logoutOpen} onOpenChange={setLogoutOpen}>
         <AlertDialogContent className="max-w-[90vw] rounded-xl">
           <AlertDialogHeader>
@@ -834,7 +1082,7 @@ export default function Pengaturan() {
   );
 }
 
-// ── Helper kecil ──────────────────────────────────────────────────────────────
+// ── Helper ────────────────────────────────────────────────────────────────────
 function Step({ n, children }: { n: number; children: React.ReactNode }) {
   return (
     <div className="flex items-start gap-3">
