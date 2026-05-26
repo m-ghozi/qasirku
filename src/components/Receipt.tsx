@@ -6,14 +6,15 @@ import { Download, Share2, Printer, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import type { Transaction, StoreSettings, TransactionItemRecord } from '@/lib/db';
+import type { Transaction, TransactionItem } from '@/services/transaction.service';
+import type { StoreSetting } from '@/services/storeSetting.service';
 
 interface ReceiptProps {
   open: boolean;
   onClose: () => void;
   transaction: Transaction;
-  items: TransactionItemRecord[];
-  storeSettings: StoreSettings | undefined;
+  items: TransactionItem[];
+  storeSettings: StoreSetting | undefined;
   paymentMethodName: string;
   cashierName?: string; // optional — shown only when multi-user is on
 }
@@ -164,9 +165,6 @@ export default function Receipt({ open, onClose, transaction, items, storeSettin
         <div ref={receiptRef} className="bg-white text-black p-4 rounded-lg mx-auto" style={{ width: '280px', fontFamily: 'monospace', fontSize: '12px' }}>
           {/* Store Header */}
           <div className="text-center mb-2">
-            {storeSettings?.logo && (
-              <img src={storeSettings.logo} alt="Logo" className="w-16 h-16 object-contain mx-auto mb-1" />
-            )}
             <p className="font-bold text-sm">{storeSettings?.storeName || 'Toko'}</p>
             {storeSettings?.address && <p className="text-[10px]">{storeSettings.address}</p>}
             {storeSettings?.phone && <p className="text-[10px]">{storeSettings.phone}</p>}

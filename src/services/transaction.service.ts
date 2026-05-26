@@ -30,7 +30,8 @@ export interface Transaction {
   discountValue: number;
   discountAmount: number;
   total: number;
-  paymentMethod: string;
+  paymentMethodId?: number;
+  paymentMethod?: string;
   paymentAmount: number;
   change: number;
   profit: number;
@@ -55,6 +56,8 @@ export interface CreateTransactionItemPayload {
   quantity: number;
   price: number;
   hpp: number;
+  totalPrice?: number;
+  profit?: number;
   discountType?: 'percentage' | 'nominal' | null;
   discountValue?: number;
   discountAmount?: number;
@@ -69,9 +72,10 @@ export interface CreateTransactionPayload {
   discountValue?: number;
   discountAmount?: number;
   total: number;
-  paymentMethod: string;
+  paymentMethodId: number;
   paymentAmount: number;
   change: number;
+  profit?: number;
   status?: 'open' | 'completed';
   customerName?: string;
   tableNumber?: string;
@@ -79,7 +83,7 @@ export interface CreateTransactionPayload {
 }
 
 export interface PayHoldPayload {
-  paymentMethod: string;
+  paymentMethodId: number;
   paymentAmount: number;
   change: number;
 }
@@ -106,5 +110,9 @@ export const transactionService = {
   payHold: async (id: number, payload: PayHoldPayload): Promise<Transaction> => {
     const { data } = await api.put(`/transactions/${id}/pay`, payload);
     return data.data;
+  },
+
+  cancel: async (id: number): Promise<void> => {
+    await api.delete(`/transactions/${id}`);
   },
 };

@@ -74,3 +74,17 @@ export function usePayHold() {
     },
   });
 }
+
+export function useCancelTransaction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => transactionService.cancel(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: TRANSACTION_KEY });
+      qc.invalidateQueries({ queryKey: PRODUCT_KEY });
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.message || 'Gagal membatalkan bill');
+    },
+  });
+}
