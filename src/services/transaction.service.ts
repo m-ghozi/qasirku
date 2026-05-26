@@ -31,7 +31,6 @@ export interface Transaction {
   discountAmount: number;
   total: number;
   paymentMethodId?: number;
-  paymentMethod?: string;
   paymentAmount: number;
   change: number;
   profit: number;

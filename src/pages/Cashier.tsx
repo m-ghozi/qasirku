@@ -302,9 +302,9 @@ export default function Kasir() {
       discountValue: Number(txDiscountValue) || 0,
       discountAmount: txDiscountAmount,
       total,
-      paymentMethodId: 0,
-      paymentAmount: 0,
-      change: 0,
+      paymentMethodId: undefined,
+      paymentAmount: undefined,
+      change: undefined,
       profit: 0,
       status: 'open' as const,
       customerName: customerName.trim() || undefined,
@@ -1399,10 +1399,9 @@ export default function Kasir() {
           transaction={lastTransaction}
           items={lastTxItems}
           storeSettings={storeSettings}
-          // transaction.service.ts pakai paymentMethod: string (nama langsung),
-          // bukan paymentMethodId — jadi langsung pakai field ini
-          paymentMethodName={lastTransaction.paymentMethod ?? 'Tunai'}
-          // createdBy sudah berupa objek { name, username } dari backend
+          paymentMethodName={
+            paymentMethods.find(pm => pm.id === lastTransaction.paymentMethodId)?.name ?? '-'
+          }
           cashierName={lastTransaction.createdBy?.name}
         />
       )}
