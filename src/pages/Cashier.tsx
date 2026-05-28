@@ -230,7 +230,7 @@ export default function Kasir() {
     setItemDiscountTargetId(null);
   };
 
-  // ── Calculations ───────────────────────────────────────────────────────────
+  // ── Kalkulasi lokal (hanya untuk preview UI, tidak dikirim ke backend) ─────
   const getItemDiscountAmount = (item: CartItem): number => {
     const base = Number(item.product.price) * item.qty;
     if (item.discountType === 'percentage')
@@ -255,36 +255,16 @@ export default function Kasir() {
   const total = Math.max(0, subtotal - txDiscountAmount);
   const paidAmount = Number(paymentAmount) || 0;
   const change = paidAmount - total;
-  const totalItemDiscount = cart.reduce(
-    (sum, item) => sum + getItemDiscountAmount(item),
-    0
-  );
-  const totalProfit =
-    cart.reduce(
-      (sum, item) =>
-        sum + (Number(item.product.price) - Number(item.product.hpp)) * item.qty,
-      0
-    ) -
-    totalItemDiscount -
-    txDiscountAmount;
 
-  // ── Payload builder (reused di saveOpenBill & handleCheckout) ─────────────
+  // ── Payload builder ────────────────────────────────────────────────────────
+  // Hanya kirim: productId, quantity, discountType, discountValue, notes.
+  // Backend menghitung sendiri price, hpp, totalPrice, profit.
   const buildItemsPayload = () =>
     cart.map(c => ({
       productId: c.product.id,
       quantity: c.qty,
-      price: Number(c.product.price),
-      hpp: Number(c.product.hpp),
-      // totalPrice & profit dibutuhkan backend (TransactionItem schema Prisma)
-      totalPrice: getItemSubtotal(c),
-      profit:
-        (Number(c.product.price) - Number(c.product.hpp)) * c.qty -
-        getItemDiscountAmount(c),
-      // Field ekstra yang disimpan di TransactionItem untuk keperluan UI/laporan
       discountType: c.discountType,
       discountValue: c.discountValue,
-      discountAmount: getItemDiscountAmount(c),
-      subtotal: getItemSubtotal(c),
       notes: c.notes,
     }));
 
@@ -297,15 +277,8 @@ export default function Kasir() {
 
     const basePayload = {
       items: buildItemsPayload(),
-      subtotal,
       discountType: txDiscountType,
       discountValue: Number(txDiscountValue) || 0,
-      discountAmount: txDiscountAmount,
-      total,
-      paymentMethodId: undefined,
-      paymentAmount: undefined,
-      change: undefined,
-      profit: 0,
       status: 'open' as const,
       customerName: customerName.trim() || undefined,
       tableNumber: tableNumber.trim() || undefined,
@@ -341,7 +314,7 @@ export default function Kasir() {
     if (!tx.id) return;
     const items = tx.items ?? [];
     if (items.length === 0) {
-      toast.error('Data item bill tidak tersedia. Pastikan backend include items.');
+      toast.error('Data item bill tidak tersedia.');
       return;
     }
 
@@ -349,7 +322,7 @@ export default function Kasir() {
     for (const item of items) {
       const product = products.find(p => p.id === item.productId);
       if (!product) {
-        toast.error(`Produk ID ${item.productId} tidak ditemukan di daftar produk`);
+        toast.error(`Produk ID ${item.productId} tidak ditemukan`);
         return;
       }
       cartItems.push({
@@ -357,7 +330,7 @@ export default function Kasir() {
         qty: item.quantity,
         discountType: (item.discountType as 'percentage' | 'nominal' | null) ?? null,
         discountValue: item.discountValue ?? 0,
-        notes: item.notes,
+        notes: item.notes ?? undefined,
       });
     }
 
@@ -406,19 +379,20 @@ export default function Kasir() {
   const handleCheckout = () => {
     if (!paymentMethodId || paidAmount < total) return;
 
-    // paymentMethods dari API — cari nama berdasarkan id yang dipilih
-    const selectedPm = paymentMethods.find(pm => pm.id === Number(paymentMethodId));
-    const pmName = selectedPm?.name ?? '';
-
     if (editingTxId) {
-      // Lunasi open bill yang sudah ada via PUT /transactions/:id/pay
+      // Lunasi open bill
       payHold.mutate(
         {
           id: editingTxId,
-          payload: { paymentMethodId: Number(paymentMethodId), paymentAmount: paidAmount, change },
+          payload: {
+            paymentMethodId: Number(paymentMethodId),
+            paymentAmount: paidAmount,
+            change,
+          },
         },
         {
           onSuccess: tx => {
+            // tx sudah include items (service fetch ulang jika kosong)
             setLastTransaction(tx);
             setLastTxItems(tx.items ?? []);
             setReceiptOpen(true);
@@ -429,19 +403,15 @@ export default function Kasir() {
         }
       );
     } else {
-      // Transaksi baru langsung completed via POST /transactions
+      // Transaksi baru
       createTransaction.mutate(
         {
           items: buildItemsPayload(),
-          subtotal,
           discountType: txDiscountType,
           discountValue: Number(txDiscountValue) || 0,
-          discountAmount: txDiscountAmount,
-          total,
           paymentMethodId: Number(paymentMethodId),
           paymentAmount: paidAmount,
           change,
-          profit: totalProfit,
           status: 'completed',
           customerName: customerName.trim() || undefined,
           tableNumber: tableNumber.trim() || undefined,
@@ -466,14 +436,11 @@ export default function Kasir() {
     setScannerOpen(false);
     const product = products.find(p => p.sku === barcode || p.barcode === barcode);
     if (product) {
-      if (product.stock <= 0) {
-        toast.error(`Stok ${product.name} habis`);
-        return;
-      }
+      if (product.stock <= 0) { toast.error(`Stok ${product.name} habis`); return; }
       addToCart(product);
       toast.success(`Ditambahkan: ${product.name}`);
     } else {
-      toast.error(`Produk dengan SKU/Barcode "${barcode}" tidak ditemukan`);
+      toast.error(`Produk "${barcode}" tidak ditemukan`);
     }
   };
 
@@ -483,14 +450,11 @@ export default function Kasir() {
       setScanInput('');
       const product = products.find(p => p.sku === code || p.barcode === code);
       if (product) {
-        if (product.stock <= 0) {
-          toast.error(`Stok ${product.name} habis`);
-          return;
-        }
+        if (product.stock <= 0) { toast.error(`Stok ${product.name} habis`); return; }
         addToCart(product);
         toast.success(`Ditambahkan: ${product.name}`);
       } else {
-        toast.error(`Produk dengan SKU/Barcode "${code}" tidak ditemukan`);
+        toast.error(`Produk "${code}" tidak ditemukan`);
       }
     }
   };
@@ -504,7 +468,7 @@ export default function Kasir() {
   const cartCount = cart.reduce((s, c) => s + c.qty, 0);
   const openBillsCount = openBills.length;
 
-  // ── Shared UI: Cart items list ─────────────────────────────────────────────
+  // ── Shared UI: Cart items ──────────────────────────────────────────────────
   const renderCartItems = () =>
     cart.map(item => (
       <div key={item.product.id} className="bg-muted/50 p-3 rounded-xl space-y-1.5">
@@ -527,22 +491,16 @@ export default function Kasir() {
           </div>
           <div className="flex items-center gap-1">
             <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8 rounded-full"
+              variant="outline" size="icon" className="h-8 w-8 rounded-full"
               onClick={() =>
-                item.qty === 1
-                  ? removeFromCart(item.product.id)
-                  : updateQty(item.product.id, -1)
+                item.qty === 1 ? removeFromCart(item.product.id) : updateQty(item.product.id, -1)
               }
             >
               {item.qty === 1 ? <X className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
             </Button>
             <span className="w-8 text-center text-sm font-bold">{item.qty}</span>
             <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8 rounded-full"
+              variant="outline" size="icon" className="h-8 w-8 rounded-full"
               onClick={() => updateQty(item.product.id, 1)}
             >
               <Plus className="w-3 h-3" />
@@ -550,29 +508,20 @@ export default function Kasir() {
           </div>
         </div>
 
-        {/* Notes & discount row */}
         <div className="flex items-center gap-2 flex-wrap">
           {item.notes ? (
             <button
               className="flex items-center gap-1 text-[10px] text-accent bg-accent/10 px-2 py-0.5 rounded-full"
-              onClick={() => {
-                setEditingItemNotes(item.product.id);
-                setTempItemNotes(item.notes || '');
-              }}
+              onClick={() => { setEditingItemNotes(item.product.id); setTempItemNotes(item.notes || ''); }}
             >
-              <Pencil className="w-2.5 h-2.5" />
-              {item.notes}
+              <Pencil className="w-2.5 h-2.5" />{item.notes}
             </button>
           ) : (
             <button
               className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-primary transition-colors"
-              onClick={() => {
-                setEditingItemNotes(item.product.id);
-                setTempItemNotes('');
-              }}
+              onClick={() => { setEditingItemNotes(item.product.id); setTempItemNotes(''); }}
             >
-              <Pencil className="w-2.5 h-2.5" />
-              Tambah catatan
+              <Pencil className="w-2.5 h-2.5" />Tambah catatan
             </button>
           )}
           {item.discountType ? (
@@ -580,82 +529,53 @@ export default function Kasir() {
               className="flex items-center gap-1 text-[10px] text-destructive bg-destructive/10 px-2 py-0.5 rounded-full"
               onClick={() => openItemDiscount(item)}
             >
-              <Tag className="w-2.5 h-2.5" />
-              Ubah diskon
+              <Tag className="w-2.5 h-2.5" />Ubah diskon
             </button>
           ) : (
             <button
               className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-primary transition-colors"
               onClick={() => openItemDiscount(item)}
             >
-              <Tag className="w-2.5 h-2.5" />
-              Tambah diskon
+              <Tag className="w-2.5 h-2.5" />Tambah diskon
             </button>
           )}
         </div>
 
-        {/* Inline notes editor */}
         {editingItemNotes === item.product.id && (
           <div className="flex gap-2 items-center">
             <Input
-              autoFocus
-              value={tempItemNotes}
+              autoFocus value={tempItemNotes}
               onChange={e => setTempItemNotes(e.target.value)}
               placeholder="Contoh: less sugar..."
               className="h-8 text-xs"
               onKeyDown={e => {
-                if (e.key === 'Enter') {
-                  updateItemNotes(item.product.id, tempItemNotes);
-                  setEditingItemNotes(null);
-                }
+                if (e.key === 'Enter') { updateItemNotes(item.product.id, tempItemNotes); setEditingItemNotes(null); }
                 if (e.key === 'Escape') setEditingItemNotes(null);
               }}
             />
-            <Button
-              size="sm"
-              className="h-8 text-xs"
-              onClick={() => {
-                updateItemNotes(item.product.id, tempItemNotes);
-                setEditingItemNotes(null);
-              }}
-            >
-              OK
-            </Button>
+            <Button size="sm" className="h-8 text-xs" onClick={() => { updateItemNotes(item.product.id, tempItemNotes); setEditingItemNotes(null); }}>OK</Button>
           </div>
         )}
       </div>
     ));
 
-  // ── Shared UI: Cart summary + action buttons ───────────────────────────────
   const renderCartSummary = (isMobile = false) => (
     <div className={cn('border-t pt-4 space-y-3', isMobile ? 'pb-6' : 'px-4 pb-4')}>
       {txDiscountAmount > 0 ? (
         <button
-          onClick={() => {
-            setTempDiscountType(txDiscountType!);
-            setTempDiscountValue(txDiscountValue);
-            setDiscountDialogOpen(true);
-          }}
+          onClick={() => { setTempDiscountType(txDiscountType!); setTempDiscountValue(txDiscountValue); setDiscountDialogOpen(true); }}
           className="flex items-center gap-1.5 text-xs text-destructive font-medium"
         >
           <Tag className="w-3.5 h-3.5" />
-          Diskon:{' '}
-          {txDiscountType === 'percentage'
-            ? `${txDiscountValue}%`
-            : `Rp ${Number(txDiscountValue).toLocaleString('id-ID')}`}
+          Diskon: {txDiscountType === 'percentage' ? `${txDiscountValue}%` : `Rp ${Number(txDiscountValue).toLocaleString('id-ID')}`}
           <span className="text-[10px] underline ml-1">Ubah</span>
         </button>
       ) : (
         <button
-          onClick={() => {
-            setTempDiscountType('nominal');
-            setTempDiscountValue('');
-            setDiscountDialogOpen(true);
-          }}
+          onClick={() => { setTempDiscountType('nominal'); setTempDiscountValue(''); setDiscountDialogOpen(true); }}
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors"
         >
-          <Tag className="w-3.5 h-3.5" />
-          <span>Tambah Diskon</span>
+          <Tag className="w-3.5 h-3.5" /><span>Tambah Diskon</span>
         </button>
       )}
 
@@ -665,21 +585,17 @@ export default function Kasir() {
       </div>
       {txDiscountAmount > 0 && (
         <div className="flex justify-between text-sm text-destructive">
-          <span>Diskon</span>
-          <span>-{rp(txDiscountAmount)}</span>
+          <span>Diskon</span><span>-{rp(txDiscountAmount)}</span>
         </div>
       )}
       <div className="flex justify-between text-lg font-bold">
-        <span>Total</span>
-        <span className="text-primary">{rp(total)}</span>
+        <span>Total</span><span className="text-primary">{rp(total)}</span>
       </div>
 
       <div className="flex gap-2">
         <Button
-          variant="outline"
-          className="flex-1 h-12 text-sm font-semibold"
-          onClick={saveOpenBill}
-          disabled={cart.length === 0 || isMutating}
+          variant="outline" className="flex-1 h-12 text-sm font-semibold"
+          onClick={saveOpenBill} disabled={cart.length === 0 || isMutating}
         >
           <Save className="w-4 h-4 mr-2" />
           {isMutating && !payHold.isPending ? 'Menyimpan...' : 'Simpan Bill'}
@@ -689,14 +605,12 @@ export default function Kasir() {
           disabled={cart.length === 0}
           onClick={() => {
             setCheckoutOpen(true);
-            // Default ke payment method pertama yang aktif
             setPaymentMethodId(paymentMethods[0]?.id?.toString() ?? '');
             setPaymentAmount(total.toString());
             setIsQuickAdding(false);
           }}
         >
-          <CreditCard className="w-4 h-4 mr-2" />
-          Bayar
+          <CreditCard className="w-4 h-4 mr-2" />Bayar
         </Button>
       </div>
 
@@ -704,48 +618,30 @@ export default function Kasir() {
         <Button
           variant="outline"
           className="w-full h-10 text-xs text-destructive border-destructive/30 hover:bg-destructive/5"
-          onClick={handleCancelFromCart}
-          disabled={isMutating}
+          onClick={handleCancelFromCart} disabled={isMutating}
         >
-          <Trash2 className="w-3.5 h-3.5 mr-1.5" />
-          Batalkan Bill Ini
+          <Trash2 className="w-3.5 h-3.5 mr-1.5" />Batalkan Bill Ini
         </Button>
       )}
     </div>
   );
 
-  // ── Permission gate (after all hooks) ─────────────────────────────────────
-  if (!allowed) {
-    return <LockedPage title="Kasir" permissionLabel="Buat Transaksi" />;
-  }
+  if (!allowed) return <LockedPage title="Kasir" permissionLabel="Buat Transaksi" />;
 
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="px-4 pt-6 pb-4 h-[calc(100vh-4rem)]">
       <div className="flex flex-col md:flex-row gap-0 md:gap-4 h-full">
 
-        {/* ── Left: Product Browser ──────────────────────────────────────── */}
+        {/* Product Browser */}
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-
-          {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <h1 className="text-xl font-bold flex items-center gap-2">
               <ShoppingCart className="w-5 h-5 text-primary" />
               Kasir
-              {editingTxId && (
-                <Badge variant="secondary" className="text-[10px] font-normal">
-                  Editing Bill
-                </Badge>
-              )}
+              {editingTxId && <Badge variant="secondary" className="text-[10px] font-normal">Editing Bill</Badge>}
             </h1>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-9 gap-1.5 text-xs relative"
-              onClick={() => setOpenBillsOpen(true)}
-            >
-              <ClipboardList className="w-4 h-4" />
-              Open Bill
+            <Button variant="ghost" size="sm" className="h-9 gap-1.5 text-xs relative" onClick={() => setOpenBillsOpen(true)}>
+              <ClipboardList className="w-4 h-4" />Open Bill
               {openBillsCount > 0 && (
                 <Badge className="absolute -top-1 -right-1 h-4 min-w-4 text-[9px] px-1 bg-destructive text-destructive-foreground">
                   {openBillsCount}
@@ -754,135 +650,68 @@ export default function Kasir() {
             </Button>
           </div>
 
-          {/* Search */}
           <div className="flex gap-2 mb-3">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                placeholder="Cari produk..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                className="pl-9 h-10"
-              />
+              <Input placeholder="Cari produk..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 h-10" />
             </div>
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-10 w-10 shrink-0"
-              onClick={() => setScannerOpen(true)}
-            >
+            <Button variant="outline" size="icon" className="h-10 w-10 shrink-0" onClick={() => setScannerOpen(true)}>
               <ScanBarcode className="w-5 h-5" />
             </Button>
           </div>
 
-          {/* Barcode scan input */}
           <div className="flex gap-2 mb-3">
             <div className="relative flex-1">
               <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                ref={scanInputRef}
-                placeholder="Scan / ketik SKU atau Barcode lalu Enter..."
-                value={scanInput}
-                onChange={e => setScanInput(e.target.value)}
-                onKeyDown={handleScanKeyDown}
-                className="pl-9 h-10 text-sm"
+                ref={scanInputRef} placeholder="Scan / ketik SKU atau Barcode lalu Enter..."
+                value={scanInput} onChange={e => setScanInput(e.target.value)}
+                onKeyDown={handleScanKeyDown} className="pl-9 h-10 text-sm"
               />
             </div>
           </div>
 
-          {/* Category chips */}
-          <div
-            className="flex gap-2 overflow-x-auto scrollbar-hide mb-3 pb-1 pr-4"
-            style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}
-          >
+          <div className="flex gap-2 overflow-x-auto scrollbar-hide mb-3 pb-1 pr-4" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}>
             <button
               onClick={() => setFilterCategory('all')}
-              className={cn(
-                'shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors',
-                filterCategory === 'all'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground'
-              )}
-            >
-              Semua
-            </button>
+              className={cn('shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors', filterCategory === 'all' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground')}
+            >Semua</button>
             {categories.map((c: { id: number; name: string; icon: string }) => (
-              <button
-                key={c.id}
-                onClick={() => setFilterCategory(c.id.toString())}
-                className={cn(
-                  'shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors',
-                  filterCategory === c.id.toString()
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted text-muted-foreground'
-                )}
-              >
-                {c.icon} {c.name}
-              </button>
+              <button key={c.id} onClick={() => setFilterCategory(c.id.toString())}
+                className={cn('shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors', filterCategory === c.id.toString() ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground')}
+              >{c.icon} {c.name}</button>
             ))}
           </div>
 
-          {/* Product Grid */}
           <div className="flex-1 overflow-y-auto scrollbar-hide">
             {loadingProducts ? (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
                 {[...Array(8)].map((_, i) => (
-                  <Card key={i} className="border-0 shadow-sm">
-                    <CardContent className="p-0">
-                      <Skeleton className="w-full aspect-square rounded-t-lg" />
-                      <div className="p-2.5 space-y-1.5">
-                        <Skeleton className="h-3 w-3/4" />
-                        <Skeleton className="h-4 w-1/2" />
-                        <Skeleton className="h-3 w-1/3" />
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <Card key={i} className="border-0 shadow-sm"><CardContent className="p-0">
+                    <Skeleton className="w-full aspect-square rounded-t-lg" />
+                    <div className="p-2.5 space-y-1.5"><Skeleton className="h-3 w-3/4" /><Skeleton className="h-4 w-1/2" /><Skeleton className="h-3 w-1/3" /></div>
+                  </CardContent></Card>
                 ))}
               </div>
             ) : filtered.length === 0 ? (
               <div className="text-center py-12">
                 <p className="text-sm text-muted-foreground">
-                  {products.length > 0
-                    ? 'Semua produk stoknya habis. Tambah stok dulu di menu Stok Masuk.'
-                    : 'Belum ada produk. Tambah produk dulu di menu Produk.'}
+                  {products.length > 0 ? 'Semua produk stoknya habis.' : 'Belum ada produk.'}
                 </p>
               </div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
                 {filtered.map(p => (
-                  <Card
-                    key={p.id}
-                    className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow active:scale-[0.98]"
-                    onClick={() => addToCart(p)}
-                  >
+                  <Card key={p.id} className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow active:scale-[0.98]" onClick={() => addToCart(p)}>
                     <CardContent className="p-0">
                       <div className="w-full aspect-square bg-muted rounded-t-lg overflow-hidden flex items-center justify-center">
-                        {p.photo ? (
-                          <img
-                            src={p.photo}
-                            alt={p.name}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <PackageIcon className="w-8 h-8 text-muted-foreground/30" />
-                        )}
+                        {p.photo ? <img src={p.photo} alt={p.name} className="w-full h-full object-cover" /> : <PackageIcon className="w-8 h-8 text-muted-foreground/30" />}
                       </div>
                       <div className="p-2.5">
                         <h3 className="text-xs font-semibold truncate">{p.name}</h3>
-                        <p className="text-sm font-bold text-primary mt-0.5">
-                          Rp {Number(p.price).toLocaleString('id-ID')}
-                        </p>
-                        {p.description && (
-                          <p
-                            className="text-[10px] text-muted-foreground mt-0.5 truncate"
-                            title={p.description}
-                          >
-                            {p.description}
-                          </p>
-                        )}
-                        <p className="text-[10px] text-muted-foreground mt-0.5">
-                          Stok: {p.stock} {p.unit}
-                        </p>
+                        <p className="text-sm font-bold text-primary mt-0.5">Rp {Number(p.price).toLocaleString('id-ID')}</p>
+                        {p.description && <p className="text-[10px] text-muted-foreground mt-0.5 truncate" title={p.description}>{p.description}</p>}
+                        <p className="text-[10px] text-muted-foreground mt-0.5">Stok: {p.stock} {p.unit}</p>
                       </div>
                     </CardContent>
                   </Card>
@@ -892,130 +721,81 @@ export default function Kasir() {
           </div>
         </div>
 
-        {/* ── Right: Desktop Cart Panel ──────────────────────────────────── */}
+        {/* Desktop Cart Panel */}
         <div className="hidden md:flex md:w-80 lg:w-96 flex-col overflow-hidden bg-card rounded-xl border border-border shrink-0">
           <div className="p-4 border-b border-border shrink-0">
             <h3 className="text-base font-bold flex items-center gap-2">
               <ShoppingCart className="w-4 h-4 text-primary" />
               Keranjang ({cartCount} item)
-              {editingTxId && (
-                <span className="text-xs font-normal text-muted-foreground">— edit</span>
-              )}
+              {editingTxId && <span className="text-xs font-normal text-muted-foreground">— edit</span>}
             </h3>
           </div>
-
           {cart.length === 0 ? (
             <div className="flex-1 flex items-center justify-center p-8">
               <p className="text-sm text-muted-foreground">Keranjang kosong</p>
             </div>
           ) : (
             <div className="flex flex-col flex-1 overflow-hidden">
-              <div className="flex-1 overflow-y-auto space-y-3 p-4">
-                {renderCartItems()}
-              </div>
-
-              {/* Customer / Table */}
+              <div className="flex-1 overflow-y-auto space-y-3 p-4">{renderCartItems()}</div>
               <div className="flex gap-2 px-4 mb-2">
                 <div className="relative flex-1">
                   <User className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                  <Input
-                    placeholder="Nama pelanggan"
-                    value={customerName}
-                    onChange={e => setCustomerName(e.target.value)}
-                    className="pl-8 h-9 text-xs"
-                  />
+                  <Input placeholder="Nama pelanggan" value={customerName} onChange={e => setCustomerName(e.target.value)} className="pl-8 h-9 text-xs" />
                 </div>
                 <div className="relative flex-[0.6]">
                   <Hash className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                  <Input
-                    placeholder="Meja"
-                    value={tableNumber}
-                    onChange={e => setTableNumber(e.target.value)}
-                    className="pl-8 h-9 text-xs"
-                  />
+                  <Input placeholder="Meja" value={tableNumber} onChange={e => setTableNumber(e.target.value)} className="pl-8 h-9 text-xs" />
                 </div>
               </div>
-
               {renderCartSummary(false)}
             </div>
           )}
         </div>
       </div>
 
-      {/* ── Cart FAB (mobile only) ────────────────────────────────────────── */}
+      {/* Cart FAB mobile */}
       {cartCount > 0 && (
-        <button
-          onClick={() => setCartOpen(true)}
-          className="md:hidden fixed bottom-24 right-4 flex items-center gap-2 bg-primary text-primary-foreground px-5 py-3 rounded-full shadow-xl active:scale-95 transition-transform z-40"
-        >
+        <button onClick={() => setCartOpen(true)} className="md:hidden fixed bottom-24 right-4 flex items-center gap-2 bg-primary text-primary-foreground px-5 py-3 rounded-full shadow-xl active:scale-95 transition-transform z-40">
           <ShoppingCart className="w-5 h-5" />
           <span className="font-bold text-sm">{cartCount} item</span>
           <span className="text-sm font-bold">• Rp {total.toLocaleString('id-ID')}</span>
         </button>
       )}
 
-      {/* ── Cart Sheet (mobile only) ──────────────────────────────────────── */}
+      {/* Cart Sheet mobile */}
       <div className="md:hidden">
-        <Sheet
-          open={cartOpen}
-          onOpenChange={open => {
-            setCartOpen(open);
-            if (!open) setEditingItemNotes(null);
-          }}
-        >
+        <Sheet open={cartOpen} onOpenChange={open => { setCartOpen(open); if (!open) setEditingItemNotes(null); }}>
           <SheetContent side="bottom" className="h-[85vh] rounded-t-2xl max-w-lg mx-auto">
             <SheetHeader>
               <SheetTitle className="text-left">
                 Keranjang ({cartCount} item)
-                {editingTxId && (
-                  <span className="text-xs font-normal text-muted-foreground ml-2">
-                    — edit open bill
-                  </span>
-                )}
+                {editingTxId && <span className="text-xs font-normal text-muted-foreground ml-2">— edit open bill</span>}
               </SheetTitle>
             </SheetHeader>
             <div className="flex flex-col h-full mt-4">
-              <div className="flex-1 overflow-y-auto space-y-3 pb-4">
-                {renderCartItems()}
-              </div>
-
+              <div className="flex-1 overflow-y-auto space-y-3 pb-4">{renderCartItems()}</div>
               <div className="flex gap-2 mb-2">
                 <div className="relative flex-1">
                   <User className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                  <Input
-                    placeholder="Nama pelanggan"
-                    value={customerName}
-                    onChange={e => setCustomerName(e.target.value)}
-                    className="pl-8 h-9 text-xs"
-                  />
+                  <Input placeholder="Nama pelanggan" value={customerName} onChange={e => setCustomerName(e.target.value)} className="pl-8 h-9 text-xs" />
                 </div>
                 <div className="relative flex-[0.6]">
                   <Hash className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                  <Input
-                    placeholder="Meja"
-                    value={tableNumber}
-                    onChange={e => setTableNumber(e.target.value)}
-                    className="pl-8 h-9 text-xs"
-                  />
+                  <Input placeholder="Meja" value={tableNumber} onChange={e => setTableNumber(e.target.value)} className="pl-8 h-9 text-xs" />
                 </div>
               </div>
-
               {renderCartSummary(true)}
             </div>
           </SheetContent>
         </Sheet>
       </div>
 
-      {/* ── Open Bills Sheet ──────────────────────────────────────────────── */}
+      {/* Open Bills Sheet */}
       <Sheet open={openBillsOpen} onOpenChange={setOpenBillsOpen}>
-        <SheetContent
-          side="bottom"
-          className="h-[80vh] rounded-t-2xl max-w-lg md:max-w-xl mx-auto"
-        >
+        <SheetContent side="bottom" className="h-[80vh] rounded-t-2xl max-w-lg md:max-w-xl mx-auto">
           <SheetHeader>
             <SheetTitle className="text-left flex items-center gap-2">
-              <ClipboardList className="w-4 h-4 text-primary" />
-              Open Bills ({openBillsCount})
+              <ClipboardList className="w-4 h-4 text-primary" />Open Bills ({openBillsCount})
             </SheetTitle>
           </SheetHeader>
           <div className="mt-4 overflow-y-auto pb-6 space-y-2">
@@ -1030,48 +810,23 @@ export default function Kasir() {
                   <CardContent className="p-3">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
-                        <Badge variant="secondary" className="text-[10px]">
-                          {bill.receiptNumber}
-                        </Badge>
+                        <Badge variant="secondary" className="text-[10px]">{bill.receiptNumber}</Badge>
                         <span className="text-[10px] text-muted-foreground">
-                          {bill.openedAt
-                            ? format(new Date(bill.openedAt), 'dd/MM HH:mm', {
-                              locale: localeId,
-                            })
-                            : bill.date
-                              ? format(new Date(bill.date), 'dd/MM HH:mm', { locale: localeId })
-                              : ''}
+                          {bill.date ? format(new Date(bill.date), 'dd/MM HH:mm', { locale: localeId }) : ''}
                         </span>
                       </div>
-                      <span className="text-sm font-bold text-primary">
-                        {rp(Number(bill.total))}
-                      </span>
+                      <span className="text-sm font-bold text-primary">{rp(Number(bill.total))}</span>
                     </div>
                     <div className="flex gap-1.5 text-[10px] text-muted-foreground mb-2">
                       {bill.customerName && <span>👤 {bill.customerName}</span>}
                       {bill.tableNumber && <span>🪑 Meja {bill.tableNumber}</span>}
-                      {bill.remarks && (
-                        <span className="truncate max-w-[120px]">📝 {bill.remarks}</span>
-                      )}
+                      {bill.remarks && <span className="truncate max-w-[120px]">📝 {bill.remarks}</span>}
                     </div>
                     <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        className="h-8 text-xs flex-1"
-                        onClick={() => loadOpenBill(bill)}
-                      >
-                        Lanjutkan
-                      </Button>
+                      <Button size="sm" className="h-8 text-xs flex-1" onClick={() => loadOpenBill(bill)}>Lanjutkan</Button>
                       {can('delete_transaction') && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-8 text-xs text-destructive border-destructive/30"
-                          onClick={() => handleCancelFromList(bill)}
-                          disabled={cancelTransaction.isPending}
-                        >
-                          Batal
-                        </Button>
+                        <Button size="sm" variant="outline" className="h-8 text-xs text-destructive border-destructive/30"
+                          onClick={() => handleCancelFromList(bill)} disabled={cancelTransaction.isPending}>Batal</Button>
                       )}
                     </div>
                   </CardContent>
@@ -1082,38 +837,27 @@ export default function Kasir() {
         </SheetContent>
       </Sheet>
 
-      {/* ── Checkout Dialog ───────────────────────────────────────────────── */}
+      {/* Checkout Dialog */}
       <Dialog open={checkoutOpen} onOpenChange={setCheckoutOpen}>
         <DialogContent className="max-w-[95vw] rounded-xl">
-          <DialogHeader>
-            <DialogTitle>Pembayaran</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Pembayaran</DialogTitle></DialogHeader>
           <div className="space-y-4 mt-2">
             <div className="text-center py-3 bg-primary/5 rounded-xl">
               <p className="text-sm text-muted-foreground">Total Bayar</p>
               <p className="text-3xl font-bold text-primary">{rp(total)}</p>
             </div>
-
             <div className="space-y-1.5">
               <p className="text-sm font-medium">Metode Pembayaran</p>
               <div className="grid grid-cols-3 gap-2">
                 {paymentMethods.map(pm => (
-                  <button
-                    key={pm.id}
-                    onClick={() => setPaymentMethodId(pm.id.toString())}
-                    className={cn(
-                      'p-3 rounded-xl text-xs font-semibold border-2 transition-colors',
-                      paymentMethodId === pm.id.toString()
-                        ? 'border-primary bg-primary/5 text-primary'
-                        : 'border-muted bg-muted/50 text-muted-foreground'
+                  <button key={pm.id} onClick={() => setPaymentMethodId(pm.id.toString())}
+                    className={cn('p-3 rounded-xl text-xs font-semibold border-2 transition-colors',
+                      paymentMethodId === pm.id.toString() ? 'border-primary bg-primary/5 text-primary' : 'border-muted bg-muted/50 text-muted-foreground'
                     )}
-                  >
-                    {pm.name}
-                  </button>
+                  >{pm.name}</button>
                 ))}
               </div>
             </div>
-
             <div className="space-y-1.5">
               <p className="text-sm font-medium">Jumlah Bayar</p>
               <div className="h-12 flex items-center justify-center rounded-md border border-input bg-background text-lg font-bold text-center px-3">
@@ -1121,269 +865,147 @@ export default function Kasir() {
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {[1000, 2000, 5000, 10000, 20000, 50000, 100000].map(nom => (
-                  <button
-                    key={nom}
+                  <button key={nom}
                     onClick={() => {
-                      if (!isQuickAdding) {
-                        setPaymentAmount(String(nom));
-                        setIsQuickAdding(true);
-                      } else {
-                        setPaymentAmount(prev => String((Number(prev) || 0) + nom));
-                      }
+                      if (!isQuickAdding) { setPaymentAmount(String(nom)); setIsQuickAdding(true); }
+                      else { setPaymentAmount(prev => String((Number(prev) || 0) + nom)); }
                     }}
-                    className="flex-1 min-w-[calc(25%-6px)] h-9 rounded-lg border border-border bg-muted/50 text-xs font-semibold text-foreground hover:bg-primary/10 hover:border-primary hover:text-primary active:scale-95 transition-all"
-                  >
-                    {nom >= 1000 ? `${nom / 1000}K` : nom}
-                  </button>
+                    className="flex-1 min-w-[calc(25%-6px)] h-9 rounded-lg border border-border bg-muted/50 text-xs font-semibold hover:bg-primary/10 hover:border-primary hover:text-primary active:scale-95 transition-all"
+                  >{nom >= 1000 ? `${nom / 1000}K` : nom}</button>
                 ))}
-                <button
-                  onClick={() => {
-                    setPaymentAmount(total.toString());
-                    setIsQuickAdding(false);
-                  }}
+                <button onClick={() => { setPaymentAmount(total.toString()); setIsQuickAdding(false); }}
                   className="flex-1 min-w-[calc(25%-6px)] h-9 rounded-lg border border-primary/30 bg-primary/5 text-xs font-semibold text-primary hover:bg-primary/10 active:scale-95 transition-all"
-                >
-                  Uang Pas
-                </button>
+                >Uang Pas</button>
               </div>
-              <button
-                onClick={() => {
-                  setPaymentAmount('0');
-                  setIsQuickAdding(false);
-                }}
+              <button onClick={() => { setPaymentAmount('0'); setIsQuickAdding(false); }}
                 className="w-full text-xs text-muted-foreground hover:text-destructive transition-colors py-1"
-              >
-                Reset
-              </button>
+              >Reset</button>
             </div>
-
             <div className="space-y-2">
               <div className="flex gap-2">
                 <div className="relative flex-1">
                   <User className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                  <Input
-                    placeholder="Nama pelanggan"
-                    value={customerName}
-                    onChange={e => setCustomerName(e.target.value)}
-                    className="pl-8 h-10 text-sm"
-                  />
+                  <Input placeholder="Nama pelanggan" value={customerName} onChange={e => setCustomerName(e.target.value)} className="pl-8 h-10 text-sm" />
                 </div>
                 <div className="relative flex-[0.7]">
                   <Hash className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                  <Input
-                    placeholder="Meja"
-                    value={tableNumber}
-                    onChange={e => setTableNumber(e.target.value)}
-                    className="pl-8 h-10 text-sm"
-                  />
+                  <Input placeholder="Meja" value={tableNumber} onChange={e => setTableNumber(e.target.value)} className="pl-8 h-10 text-sm" />
                 </div>
               </div>
-              <Input
-                placeholder="Catatan tambahan (opsional)"
-                value={remarks}
-                onChange={e => setRemarks(e.target.value)}
-                className="h-10"
-              />
+              <Input placeholder="Catatan tambahan (opsional)" value={remarks} onChange={e => setRemarks(e.target.value)} className="h-10" />
             </div>
-
             {paidAmount >= total && (
               <div className="flex justify-between items-center bg-success/10 p-3 rounded-xl">
                 <span className="text-sm font-medium">Kembalian</span>
-                <span className="text-lg font-bold text-success">
-                  Rp {change.toLocaleString('id-ID')}
-                </span>
+                <span className="text-lg font-bold text-success">Rp {change.toLocaleString('id-ID')}</span>
               </div>
             )}
-
-            <Button
-              className="w-full h-12 text-base font-semibold"
-              onClick={handleCheckout}
+            <Button className="w-full h-12 text-base font-semibold" onClick={handleCheckout}
               disabled={!paymentMethodId || paidAmount < total || isMutating}
             >
               <Check className="w-5 h-5 mr-2" />
-              {payHold.isPending || createTransaction.isPending
-                ? 'Memproses...'
-                : 'Konfirmasi Transaksi'}
+              {payHold.isPending || createTransaction.isPending ? 'Memproses...' : 'Konfirmasi Transaksi'}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* ── Discount Dialog ───────────────────────────────────────────────── */}
+      {/* Discount Dialog */}
       <Dialog open={discountDialogOpen} onOpenChange={setDiscountDialogOpen}>
         <DialogContent className="max-w-[95vw] rounded-xl">
-          <DialogHeader>
-            <DialogTitle>Diskon Transaksi</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Diskon Transaksi</DialogTitle></DialogHeader>
           <div className="space-y-4 mt-2">
             <div className="space-y-1.5">
               <p className="text-sm font-medium">Jenis Diskon</p>
               <div className="grid grid-cols-2 gap-2">
                 {(['nominal', 'percentage'] as const).map(type => (
-                  <button
-                    key={type}
-                    onClick={() => setTempDiscountType(type)}
-                    className={cn(
-                      'p-3 rounded-xl text-sm font-semibold border-2 transition-colors',
-                      tempDiscountType === type
-                        ? 'border-primary bg-primary/5 text-primary'
-                        : 'border-muted bg-muted/50 text-muted-foreground'
+                  <button key={type} onClick={() => setTempDiscountType(type)}
+                    className={cn('p-3 rounded-xl text-sm font-semibold border-2 transition-colors',
+                      tempDiscountType === type ? 'border-primary bg-primary/5 text-primary' : 'border-muted bg-muted/50 text-muted-foreground'
                     )}
-                  >
-                    {type === 'nominal' ? 'Nominal (Rp)' : 'Persen (%)'}
-                  </button>
+                  >{type === 'nominal' ? 'Nominal (Rp)' : 'Persen (%)'}</button>
                 ))}
               </div>
             </div>
             <div className="space-y-1.5">
-              <p className="text-sm font-medium">
-                {tempDiscountType === 'percentage' ? 'Persentase Diskon' : 'Jumlah Diskon'}
-              </p>
-              <Input
-                type="number"
-                value={tempDiscountValue}
-                onChange={e => setTempDiscountValue(e.target.value)}
+              <p className="text-sm font-medium">{tempDiscountType === 'percentage' ? 'Persentase Diskon' : 'Jumlah Diskon'}</p>
+              <Input type="number" value={tempDiscountValue} onChange={e => setTempDiscountValue(e.target.value)}
                 placeholder={tempDiscountType === 'percentage' ? 'Contoh: 10' : 'Contoh: 5000'}
                 className="h-12 text-lg font-bold text-center"
               />
               {tempDiscountType === 'percentage' && Number(tempDiscountValue) > 0 && (
                 <p className="text-xs text-muted-foreground text-center">
-                  = Rp {((subtotal * Number(tempDiscountValue)) / 100).toLocaleString('id-ID')}{' '}
-                  dari Rp {subtotal.toLocaleString('id-ID')}
+                  = Rp {((subtotal * Number(tempDiscountValue)) / 100).toLocaleString('id-ID')} dari Rp {subtotal.toLocaleString('id-ID')}
                 </p>
               )}
             </div>
             <div className="flex gap-2">
               {txDiscountType && (
-                <Button
-                  variant="outline"
-                  className="h-11 text-destructive border-destructive/30"
-                  onClick={() => {
-                    setTxDiscountType(null);
-                    setTxDiscountValue('');
-                    setDiscountDialogOpen(false);
-                  }}
-                >
-                  Hapus
-                </Button>
+                <Button variant="outline" className="h-11 text-destructive border-destructive/30"
+                  onClick={() => { setTxDiscountType(null); setTxDiscountValue(''); setDiscountDialogOpen(false); }}
+                >Hapus</Button>
               )}
-              <Button
-                className="flex-1 h-11 font-semibold"
-                onClick={() => {
-                  if (Number(tempDiscountValue) > 0) {
-                    setTxDiscountType(tempDiscountType);
-                    setTxDiscountValue(tempDiscountValue);
-                  } else {
-                    setTxDiscountType(null);
-                    setTxDiscountValue('');
-                  }
-                  setDiscountDialogOpen(false);
-                }}
-              >
-                Simpan Diskon
-              </Button>
+              <Button className="flex-1 h-11 font-semibold" onClick={() => {
+                if (Number(tempDiscountValue) > 0) { setTxDiscountType(tempDiscountType); setTxDiscountValue(tempDiscountValue); }
+                else { setTxDiscountType(null); setTxDiscountValue(''); }
+                setDiscountDialogOpen(false);
+              }}>Simpan Diskon</Button>
             </div>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* ── Item Discount Dialog ──────────────────────────────────────────── */}
-      <Dialog
-        open={itemDiscountTargetId !== null}
-        onOpenChange={open => {
-          if (!open) setItemDiscountTargetId(null);
-        }}
-      >
+      {/* Item Discount Dialog */}
+      <Dialog open={itemDiscountTargetId !== null} onOpenChange={open => { if (!open) setItemDiscountTargetId(null); }}>
         <DialogContent className="max-w-[95vw] rounded-xl">
-          <DialogHeader>
-            <DialogTitle>Diskon Item</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Diskon Item</DialogTitle></DialogHeader>
           {(() => {
             const target = cart.find(c => c.product.id === itemDiscountTargetId);
             if (!target) return null;
             const base = Number(target.product.price) * target.qty;
             const rawValue = Number(itemDiscountValue) || 0;
-            const previewAmount =
-              itemDiscountType === 'percentage'
-                ? (base * Math.min(100, Math.max(0, rawValue))) / 100
-                : Math.min(base, Math.max(0, rawValue));
-            const exceedsCap =
-              itemDiscountType === 'percentage' ? rawValue > 100 : rawValue > base;
+            const previewAmount = itemDiscountType === 'percentage'
+              ? (base * Math.min(100, Math.max(0, rawValue))) / 100
+              : Math.min(base, Math.max(0, rawValue));
+            const exceedsCap = itemDiscountType === 'percentage' ? rawValue > 100 : rawValue > base;
             return (
               <div className="space-y-4 mt-2">
                 <div className="bg-muted/50 rounded-xl p-3">
                   <p className="text-xs text-muted-foreground">Item</p>
                   <p className="text-sm font-semibold">{target.product.name}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Rp {Number(target.product.price).toLocaleString('id-ID')} × {target.qty} ={' '}
-                    {rp(base)}
-                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Rp {Number(target.product.price).toLocaleString('id-ID')} × {target.qty} = {rp(base)}</p>
                 </div>
                 <div className="space-y-1.5">
                   <p className="text-sm font-medium">Jenis Diskon</p>
                   <div className="grid grid-cols-2 gap-2">
                     {(['nominal', 'percentage'] as const).map(type => (
-                      <button
-                        key={type}
-                        onClick={() => setItemDiscountType(type)}
-                        className={cn(
-                          'p-3 rounded-xl text-sm font-semibold border-2 transition-colors',
-                          itemDiscountType === type
-                            ? 'border-primary bg-primary/5 text-primary'
-                            : 'border-muted bg-muted/50 text-muted-foreground'
+                      <button key={type} onClick={() => setItemDiscountType(type)}
+                        className={cn('p-3 rounded-xl text-sm font-semibold border-2 transition-colors',
+                          itemDiscountType === type ? 'border-primary bg-primary/5 text-primary' : 'border-muted bg-muted/50 text-muted-foreground'
                         )}
-                      >
-                        {type === 'nominal' ? 'Nominal (Rp)' : 'Persen (%)'}
-                      </button>
+                      >{type === 'nominal' ? 'Nominal (Rp)' : 'Persen (%)'}</button>
                     ))}
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <p className="text-sm font-medium">
-                    {itemDiscountType === 'percentage'
-                      ? 'Persentase Diskon'
-                      : 'Jumlah Diskon'}
-                  </p>
-                  <Input
-                    type="number"
-                    inputMode="decimal"
-                    value={itemDiscountValue}
-                    onChange={e => setItemDiscountValue(e.target.value)}
-                    placeholder={
-                      itemDiscountType === 'percentage' ? 'Contoh: 10' : 'Contoh: 5000'
-                    }
-                    className="h-12 text-lg font-bold text-center"
-                    autoFocus
+                  <p className="text-sm font-medium">{itemDiscountType === 'percentage' ? 'Persentase Diskon' : 'Jumlah Diskon'}</p>
+                  <Input type="number" inputMode="decimal" value={itemDiscountValue} onChange={e => setItemDiscountValue(e.target.value)}
+                    placeholder={itemDiscountType === 'percentage' ? 'Contoh: 10' : 'Contoh: 5000'}
+                    className="h-12 text-lg font-bold text-center" autoFocus
                   />
                   {rawValue > 0 && (
-                    <p
-                      className={cn(
-                        'text-xs text-center',
-                        exceedsCap ? 'text-destructive' : 'text-muted-foreground'
-                      )}
-                    >
+                    <p className={cn('text-xs text-center', exceedsCap ? 'text-destructive' : 'text-muted-foreground')}>
                       {exceedsCap
-                        ? `Dibatasi otomatis ke ${itemDiscountType === 'percentage' ? '100%' : rp(base)
-                        }`
-                        : `Diskon: -${rp(previewAmount)} → subtotal ${rp(
-                          Math.max(0, base - previewAmount)
-                        )}`}
+                        ? `Dibatasi otomatis ke ${itemDiscountType === 'percentage' ? '100%' : rp(base)}`
+                        : `Diskon: -${rp(previewAmount)} → subtotal ${rp(Math.max(0, base - previewAmount))}`}
                     </p>
                   )}
                 </div>
                 <div className="flex gap-2">
                   {target.discountType && (
-                    <Button
-                      variant="outline"
-                      className="h-11 text-destructive border-destructive/30"
-                      onClick={clearItemDiscount}
-                    >
-                      Hapus
-                    </Button>
+                    <Button variant="outline" className="h-11 text-destructive border-destructive/30" onClick={clearItemDiscount}>Hapus</Button>
                   )}
-                  <Button className="flex-1 h-11 font-semibold" onClick={saveItemDiscount}>
-                    Simpan Diskon
-                  </Button>
+                  <Button className="flex-1 h-11 font-semibold" onClick={saveItemDiscount}>Simpan Diskon</Button>
                 </div>
               </div>
             );
@@ -1391,7 +1013,7 @@ export default function Kasir() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Receipt Dialog ────────────────────────────────────────────────── */}
+      {/* Receipt Dialog */}
       {lastTransaction && (
         <Receipt
           open={receiptOpen}
@@ -1400,27 +1022,21 @@ export default function Kasir() {
           items={lastTxItems}
           storeSettings={storeSettings}
           paymentMethodName={
-            paymentMethods.find(pm => pm.id === lastTransaction.paymentMethodId)?.name ?? '-'
+            lastTransaction.paymentMethod?.name ??
+            paymentMethods.find(pm => pm.id === lastTransaction.paymentMethodId)?.name ??
+            '-'
           }
           cashierName={lastTransaction.createdBy?.name}
         />
       )}
 
-      {/* ── Barcode Scanner ───────────────────────────────────────────────── */}
-      <BarcodeScanner
-        open={scannerOpen}
-        onClose={() => setScannerOpen(false)}
-        onScan={handleScan}
-      />
+      <BarcodeScanner open={scannerOpen} onClose={() => setScannerOpen(false)} onScan={handleScan} />
 
-      {/* ── Cancel Open Bill Dialog ───────────────────────────────────────── */}
       <AlertDialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
         <AlertDialogContent className="max-w-[90vw] rounded-xl">
           <AlertDialogHeader>
             <AlertDialogTitle>Batalkan Bill?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Bill ini akan dihapus dan stok produk akan dikembalikan.
-            </AlertDialogDescription>
+            <AlertDialogDescription>Bill ini akan dihapus permanen.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setCancelTargetTx(null)}>Tidak</AlertDialogCancel>
@@ -1428,9 +1044,7 @@ export default function Kasir() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={cancelTransaction.isPending}
               onClick={() => cancelTargetTx && cancelOpenBill(cancelTargetTx)}
-            >
-              {cancelTransaction.isPending ? 'Membatalkan...' : 'Batalkan Bill'}
-            </AlertDialogAction>
+            >{cancelTransaction.isPending ? 'Membatalkan...' : 'Batalkan Bill'}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -9,17 +9,17 @@ export interface TransactionItem {
   quantity: number;
   price: number;
   hpp: number;
-  totalPrice: number;
+  totalPrice: number;   // dari backend (server-calculated)
   profit: number;
-  // Field tambahan dari frontend (tidak ada di schema Prisma TransactionItem,
-  // tapi backend bisa include via join atau kita simpan di payload)
-  productName?: string;
   discountType?: 'percentage' | 'nominal' | null;
   discountValue?: number;
   discountAmount?: number;
-  subtotal?: number;
-  notes?: string;
-  product?: { id: number; name: string };
+  notes?: string | null;
+  product?: { id: number; name: string; sku: string };
+
+  // Helper getters — diisi saat normalisasi response (lihat normalizeItem)
+  productName?: string;  // shortcut ke product.name
+  subtotal?: number;     // alias totalPrice, dipakai Receipt component
 }
 
 export interface Transaction {
@@ -30,22 +30,21 @@ export interface Transaction {
   discountValue: number;
   discountAmount: number;
   total: number;
-  paymentMethodId?: number;
+  paymentMethodId?: number | null;
   paymentAmount: number;
   change: number;
   profit: number;
   status: 'open' | 'completed' | 'cancelled';
   date: string;
   createdById: number;
-  // Metadata opsional
   customerName?: string;
   tableNumber?: string;
   remarks?: string;
   openedAt?: string;
   closedAt?: string;
-  // Relasi
   items?: TransactionItem[];
   createdBy?: { id: number; name: string; username: string };
+  paymentMethod?: { name: string; category: string };
 }
 
 // ── Payload untuk buat transaksi baru ────────────────────────────────────────
@@ -53,27 +52,26 @@ export interface Transaction {
 export interface CreateTransactionItemPayload {
   productId: number;
   quantity: number;
-  price: number;
-  hpp: number;
-  totalPrice?: number;
-  profit?: number;
+  // price & hpp TIDAK perlu dikirim — backend selalu ambil dari DB.
+  price?: number;
+  hpp?: number;
   discountType?: 'percentage' | 'nominal' | null;
   discountValue?: number;
-  discountAmount?: number;
-  subtotal?: number;
   notes?: string;
 }
 
 export interface CreateTransactionPayload {
   items: CreateTransactionItemPayload[];
-  subtotal: number;
+  // subtotal, discountAmount, total, profit TIDAK perlu dikirim —
+  // backend menghitung ulang semua nilai ini dari DB.
+  subtotal?: number;
   discountType?: 'percentage' | 'nominal' | null;
   discountValue?: number;
   discountAmount?: number;
-  total: number;
-  paymentMethodId: number;
-  paymentAmount: number;
-  change: number;
+  total?: number;
+  paymentMethodId?: number | null;
+  paymentAmount?: number;
+  change?: number;
   profit?: number;
   status?: 'open' | 'completed';
   customerName?: string;
@@ -87,28 +85,57 @@ export interface PayHoldPayload {
   change: number;
 }
 
+// ── Normalisasi helper ────────────────────────────────────────────────────────
+
+function normalizeItem(item: TransactionItem): TransactionItem {
+  return {
+    ...item,
+    productName: item.productName ?? item.product?.name ?? `Produk #${item.productId}`,
+    subtotal: item.subtotal ?? item.totalPrice,
+  };
+}
+
+function normalizeTransaction(tx: Transaction): Transaction {
+  return {
+    ...tx,
+    subtotal: Number(tx.subtotal),
+    discountValue: Number(tx.discountValue ?? 0),
+    discountAmount: Number(tx.discountAmount ?? 0),
+    total: Number(tx.total),
+    paymentAmount: Number(tx.paymentAmount ?? 0),
+    change: Number(tx.change ?? 0),
+    profit: Number(tx.profit ?? 0),
+    items: tx.items?.map(normalizeItem),
+  };
+}
+
 // ── Service ───────────────────────────────────────────────────────────────────
 
 export const transactionService = {
   getAll: async (): Promise<Transaction[]> => {
     const { data } = await api.get('/transactions');
-    return data.data;
+    return (data.data as Transaction[]).map(normalizeTransaction);
   },
 
   getById: async (id: number): Promise<Transaction> => {
     const { data } = await api.get(`/transactions/${id}`);
-    return data.data;
+    return normalizeTransaction(data.data);
   },
 
   create: async (payload: CreateTransactionPayload): Promise<Transaction> => {
     const { data } = await api.post('/transactions', payload);
-    return data.data;
+    return normalizeTransaction(data.data);
   },
 
   /** Melunasi open bill */
   payHold: async (id: number, payload: PayHoldPayload): Promise<Transaction> => {
     const { data } = await api.put(`/transactions/${id}/pay`, payload);
-    return data.data;
+    const tx = normalizeTransaction(data.data) as Transaction;
+    // payHold response tidak include items — fetch ulang agar struk lengkap
+    if (!tx.items || tx.items.length === 0) {
+      return transactionService.getById(tx.id);
+    }
+    return tx;
   },
 
   cancel: async (id: number): Promise<void> => {
