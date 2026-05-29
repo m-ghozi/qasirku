@@ -7,3 +7,4 @@ export * from './user.service';
 export * from './storeSetting.service';
 export * from './dashboard.service';
 export * from './report.service';
+export * from './expense.service';

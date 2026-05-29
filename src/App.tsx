@@ -18,6 +18,7 @@ import StockOutPage from "./pages/StockOut";
 import TransactionHistory from "./pages/TransactionHistory";
 import StockReport from "./pages/StockReport";
 import UsersPage from "./pages/Users";
+import Expenses from "./pages/Expenses";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -56,6 +57,7 @@ export default function App() {
                   <Route path="/history" element={<TransactionHistory />} />
                   <Route path="/stock-report" element={<StockReport />} />
                   <Route path="/users" element={<UsersPage />} />
+                  <Route path="/expenses" element={<Expenses />} /> 
                 </Route>
               </Route>
 

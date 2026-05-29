@@ -11,7 +11,9 @@ export type PermissionKey =
   | 'manage_supplier'
   | 'view_reports'
   | 'manage_backup'
-  | 'manage_store_settings';
+  | 'manage_store_settings'
+  | 'manage_expenses'
+  | 'view_expenses'
 
 export interface AuthUser {
   id: number;
@@ -53,6 +55,8 @@ export const PERMISSION_LABELS: Record<PermissionKey, { title: string; desc: str
   view_reports: { title: 'Lihat Laporan & Profit', desc: 'Akses laporan penjualan, profit, HPP, dan laporan stok' },
   manage_backup: { title: 'Backup & Restore', desc: 'Export dan import data toko' },
   manage_store_settings: { title: 'Edit Info Toko & Tema', desc: 'Ubah nama toko, alamat, telepon, logo, warna tema' },
+  manage_expenses: { title: 'Kelola Pengeluaran', desc: 'Tambah, edit, dan hapus data pengeluaran' },
+  view_expenses: { title: 'Lihat Pengeluaran', desc: 'Akses laporan pengeluaran' },
 };
 
 export const DEFAULT_STAFF_PERMISSIONS: PermissionKey[] = ['create_transaction'];

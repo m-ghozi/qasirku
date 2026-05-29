@@ -2,10 +2,11 @@
  * Settings.tsx
  *
  * Perubahan dari versi sebelumnya:
- *  - Tambah section "Metode Pembayaran" di bawah Kategori Produk
- *  - Hooks: usePaymentMethods / useCreatePaymentMethod / useUpdatePaymentMethod
- *           / useDeactivatePaymentMethod / useDeletePaymentMethod / useSetDefaultPaymentMethod
- *  - Guard: can('manage_categories_payments') — sama dengan kategori
+ *  - Tambah section "Kategori Pengeluaran" di bawah Metode Pembayaran
+ *  - Tambah link navigasi ke /expenses di section Transaksi & Stok
+ *  - Hooks: useExpenseCategories / useCreateExpenseCategory /
+ *           useUpdateExpenseCategory / useDeleteExpenseCategory
+ *  - Guard: can('manage_categories_payments') — sama dengan kategori lain
  */
 
 import { useState } from 'react';
@@ -34,6 +35,7 @@ import {
   CreditCard,
   Star,
   EyeOff,
+  Wallet,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -65,11 +67,18 @@ import {
   useDeletePaymentMethod,
   useSetDefaultPaymentMethod,
 } from '@/hooks/use-payment-methods';
+import {
+  useExpenseCategories,
+  useCreateExpenseCategory,
+  useUpdateExpenseCategory,
+  useDeleteExpenseCategory,
+} from '@/hooks/use-expenses';
 import { useStoreSetting, useUpdateStoreSetting } from '@/hooks/use-store-setting';
 import { useUsers } from '@/hooks/use-users';
 import type { Category } from '@/services/category.service';
 import type { Unit } from '@/services/unit.service';
 import type { PaymentMethod, PaymentCategory } from '@/services/paymentMethod.service';
+import type { ExpenseCategory } from '@/services/expense.service';
 
 // ── Konstanta ─────────────────────────────────────────────────────────────────
 
@@ -110,6 +119,8 @@ function getStoredThemeHue(): string {
   return localStorage.getItem('themeColorHue') ?? '25';
 }
 
+const EXPENSE_EMOJI_OPTIONS = ['💡', '🏠', '👤', '🚚', '🧰', '📦', '💧', '📞', '🌐', '☕', '🧾', '💼'];
+
 // ── Komponen utama ────────────────────────────────────────────────────────────
 
 export default function Pengaturan() {
@@ -130,12 +141,17 @@ export default function Pengaturan() {
   const updateUnit = useUpdateUnit();
   const deleteUnit = useDeleteUnit();
 
-  const { data: paymentMethods = [] } = usePaymentMethods(true); // includeInactive=true agar bisa kelola semua
+  const { data: paymentMethods = [] } = usePaymentMethods(true);
   const createPaymentMethod = useCreatePaymentMethod();
   const updatePaymentMethod = useUpdatePaymentMethod();
   const deactivatePaymentMethod = useDeactivatePaymentMethod();
   const deletePaymentMethod = useDeletePaymentMethod();
   const setDefaultPaymentMethod = useSetDefaultPaymentMethod();
+
+  const { data: expenseCategories = [] } = useExpenseCategories();
+  const createExpenseCategory = useCreateExpenseCategory();
+  const updateExpenseCategory = useUpdateExpenseCategory();
+  const deleteExpenseCategory = useDeleteExpenseCategory();
 
   const { data: users = [] } = useUsers();
 
@@ -177,6 +193,14 @@ export default function Pengaturan() {
   const [pmDeactivateTarget, setPmDeactivateTarget] = useState<PaymentMethod | null>(null);
   const [pmDeleteTarget, setPmDeleteTarget] = useState<PaymentMethod | null>(null);
 
+  // Expense Category
+  const [expCatDialog, setExpCatDialog] = useState(false);
+  const [expCatName, setExpCatName] = useState('');
+  const [expCatIcon, setExpCatIcon] = useState('📦');
+  const [expCatColor, setExpCatColor] = useState('#FBBF24');
+  const [expCatEditId, setExpCatEditId] = useState<number | null>(null);
+  const [expCatDeleteTarget, setExpCatDeleteTarget] = useState<ExpenseCategory | null>(null);
+
   // ── Store handlers ────────────────────────────────────────────────────────
 
   const openStoreEdit = () => {
@@ -189,13 +213,8 @@ export default function Pengaturan() {
 
   const saveStore = () => {
     updateStoreSetting.mutate(
-      {
-        storeName: storeName.trim(),
-        address: storeAddr.trim(),
-        phone: storePhone.trim(),
-        receiptFooter: storeFooter.trim(),
-      },
-      { onSuccess: () => setStoreDialog(false) }
+      { storeName: storeName.trim(), address: storeAddr.trim(), phone: storePhone.trim(), receiptFooter: storeFooter.trim() },
+      { onSuccess: () => setStoreDialog(false) },
     );
   };
 
@@ -216,12 +235,12 @@ export default function Pengaturan() {
     if (catEditId) {
       updateCategory.mutate(
         { id: catEditId, payload: { name: catName.trim(), icon: catIcon, color: catColor } },
-        { onSuccess: () => setCatDialog(false) }
+        { onSuccess: () => setCatDialog(false) },
       );
     } else {
       createCategory.mutate(
         { name: catName.trim(), icon: catIcon, color: catColor },
-        { onSuccess: () => setCatDialog(false) }
+        { onSuccess: () => setCatDialog(false) },
       );
     }
   };
@@ -248,12 +267,12 @@ export default function Pengaturan() {
     if (unitEditId) {
       updateUnit.mutate(
         { id: unitEditId, payload: { name: unitName.trim(), isDefault: unitIsDefault } },
-        { onSuccess: () => setUnitDialog(false) }
+        { onSuccess: () => setUnitDialog(false) },
       );
     } else {
       createUnit.mutate(
         { name: unitName.trim(), isDefault: unitIsDefault },
-        { onSuccess: () => setUnitDialog(false) }
+        { onSuccess: () => setUnitDialog(false) },
       );
     }
   };
@@ -280,27 +299,57 @@ export default function Pengaturan() {
     if (pmEditId) {
       updatePaymentMethod.mutate(
         { id: pmEditId, payload: { name: pmName.trim(), category: pmCategory, isDefault: pmIsDefault } },
-        { onSuccess: () => setPmDialog(false) }
+        { onSuccess: () => setPmDialog(false) },
       );
     } else {
       createPaymentMethod.mutate(
         { name: pmName.trim(), category: pmCategory, isDefault: pmIsDefault },
-        { onSuccess: () => setPmDialog(false) }
+        { onSuccess: () => setPmDialog(false) },
       );
     }
   };
 
   const confirmDeactivatePm = () => {
     if (!pmDeactivateTarget) return;
-    deactivatePaymentMethod.mutate(pmDeactivateTarget.id, {
-      onSuccess: () => setPmDeactivateTarget(null),
-    });
+    deactivatePaymentMethod.mutate(pmDeactivateTarget.id, { onSuccess: () => setPmDeactivateTarget(null) });
   };
 
   const confirmDeletePm = () => {
     if (!pmDeleteTarget) return;
-    deletePaymentMethod.mutate(pmDeleteTarget.id, {
-      onSuccess: () => setPmDeleteTarget(null),
+    deletePaymentMethod.mutate(pmDeleteTarget.id, { onSuccess: () => setPmDeleteTarget(null) });
+  };
+
+  // ── Expense Category handlers ─────────────────────────────────────────────
+
+  const openExpCatAdd = () => {
+    setExpCatEditId(null); setExpCatName(''); setExpCatIcon('📦'); setExpCatColor('#FBBF24');
+    setExpCatDialog(true);
+  };
+
+  const openExpCatEdit = (c: ExpenseCategory) => {
+    setExpCatEditId(c.id); setExpCatName(c.name); setExpCatIcon(c.icon); setExpCatColor(c.color);
+    setExpCatDialog(true);
+  };
+
+  const saveExpCat = () => {
+    if (!expCatName.trim()) return;
+    if (expCatEditId) {
+      updateExpenseCategory.mutate(
+        { id: expCatEditId, payload: { name: expCatName.trim(), icon: expCatIcon, color: expCatColor } },
+        { onSuccess: () => setExpCatDialog(false) },
+      );
+    } else {
+      createExpenseCategory.mutate(
+        { name: expCatName.trim(), icon: expCatIcon, color: expCatColor },
+        { onSuccess: () => setExpCatDialog(false) },
+      );
+    }
+  };
+
+  const confirmDeleteExpCat = () => {
+    if (!expCatDeleteTarget) return;
+    deleteExpenseCategory.mutate(expCatDeleteTarget.id, {
+      onSuccess: () => setExpCatDeleteTarget(null),
     });
   };
 
@@ -495,6 +544,24 @@ export default function Pengaturan() {
           </>
         )}
 
+        {/* ── Link Pengeluaran ── */}
+        {(can('manage_expenses') || can('view_expenses')) && (
+          <Link to="/expenses">
+            <Card className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow mb-2">
+              <CardContent className="p-3 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-warning/10 text-warning flex items-center justify-center">
+                  <Wallet className="w-4 h-4" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold">Pengeluaran</p>
+                  <p className="text-[10px] text-muted-foreground">Catat biaya operasional (listrik, gaji, sewa, dll)</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
+              </CardContent>
+            </Card>
+          </Link>
+        )}
+
         {can('view_reports') && (
           <Link to="/stock-report">
             <Card className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow">
@@ -513,10 +580,10 @@ export default function Pengaturan() {
         )}
       </div>
 
-      {/* ── Kategori Produk & Metode Pembayaran ─────────────────────────── */}
+      {/* ── Kategori Produk, Metode Pembayaran & Kategori Pengeluaran ───── */}
       {can('manage_categories_payments') && (
         <>
-          {/* Kategori */}
+          {/* Kategori Produk */}
           <Card className="border-0 shadow-sm">
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
@@ -602,45 +669,30 @@ export default function Pengaturan() {
                       )}
                     </div>
                     <div className="flex gap-1 shrink-0">
-                      {/* Jadikan default */}
                       {!pm.isDefault && pm.isActive && (
                         <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-muted-foreground"
+                          variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground"
                           title="Jadikan Default"
                           onClick={() => setDefaultPaymentMethod.mutate(pm.id)}
                         >
                           <Star className="w-3 h-3" />
                         </Button>
                       )}
-                      {/* Edit */}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        onClick={() => openPmEdit(pm)}
-                      >
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openPmEdit(pm)}>
                         <Edit2 className="w-3 h-3" />
                       </Button>
-                      {/* Nonaktifkan / Aktifkan */}
                       {!pm.isDefault && pm.isActive && (
                         <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-muted-foreground"
+                          variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground"
                           title="Nonaktifkan"
                           onClick={() => setPmDeactivateTarget(pm)}
                         >
                           <EyeOff className="w-3 h-3" />
                         </Button>
                       )}
-                      {/* Hapus permanen — hanya yang nonaktif */}
                       {!pm.isActive && (
                         <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-destructive"
+                          variant="ghost" size="icon" className="h-7 w-7 text-destructive"
                           title="Hapus Permanen"
                           onClick={() => setPmDeleteTarget(pm)}
                         >
@@ -651,6 +703,56 @@ export default function Pengaturan() {
                   </div>
                 );
               })}
+            </CardContent>
+          </Card>
+
+          {/* ── Kategori Pengeluaran ── */}
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm flex items-center gap-1.5">
+                  <Wallet className="w-4 h-4" /> Kategori Pengeluaran
+                </CardTitle>
+                <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={openExpCatAdd}>
+                  <Plus className="w-3 h-3" /> Tambah
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-1">
+              {expenseCategories.length === 0 && (
+                <p className="text-xs text-muted-foreground py-1.5">Belum ada kategori pengeluaran</p>
+              )}
+              {expenseCategories.map(c => (
+                <div key={c.id} className="flex items-center justify-between py-1.5">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="w-6 h-6 rounded flex items-center justify-center text-sm"
+                      style={{ backgroundColor: c.color + '20' }}
+                    >
+                      {c.icon}
+                    </span>
+                    <span className="text-sm font-medium">{c.name}</span>
+                    {c.isDefault && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
+                        Default
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openExpCatEdit(c)}>
+                      <Edit2 className="w-3 h-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-destructive"
+                      onClick={() => setExpCatDeleteTarget(c)}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
             </CardContent>
           </Card>
         </>
@@ -733,24 +835,21 @@ export default function Pengaturan() {
           <div className="flex flex-col gap-2 pt-2">
             <a
               href="https://kasirgratisan.fider.io"
-              target="_blank"
-              rel="noopener noreferrer"
+              target="_blank" rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 w-full h-9 rounded-lg border border-border bg-muted/50 text-xs font-semibold text-foreground hover:bg-primary/5 hover:border-primary/30 hover:text-primary transition-colors"
             >
               💡 Request Fitur
             </a>
             <a
               href="https://traktir.jipraks.com"
-              target="_blank"
-              rel="noopener noreferrer"
+              target="_blank" rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 w-full h-9 rounded-lg border border-warning/30 bg-warning/5 text-xs font-semibold text-warning hover:bg-warning/10 transition-colors"
             >
               ☕ Traktir Kopi untuk Developer
             </a>
             <a
               href="https://t.me/kasirgratisan"
-              target="_blank"
-              rel="noopener noreferrer"
+              target="_blank" rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 w-full h-9 rounded-lg border border-sky-500/30 bg-sky-500/5 text-xs font-semibold text-sky-600 dark:text-sky-400 hover:bg-sky-500/10 transition-colors"
             >
               💬 Gabung Grup Telegram
@@ -802,22 +901,10 @@ export default function Pengaturan() {
         <DialogContent className="max-w-[95vw] rounded-xl">
           <DialogHeader><DialogTitle>Info Toko</DialogTitle></DialogHeader>
           <div className="space-y-4 mt-2">
-            <div className="space-y-1.5">
-              <Label>Nama Toko</Label>
-              <Input value={storeName} onChange={e => setStoreName(e.target.value)} className="h-11" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Alamat</Label>
-              <Input value={storeAddr} onChange={e => setStoreAddr(e.target.value)} className="h-11" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Telepon</Label>
-              <Input value={storePhone} onChange={e => setStorePhone(e.target.value)} className="h-11" type="tel" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Receipt Footer</Label>
-              <Input value={storeFooter} onChange={e => setStoreFooter(e.target.value)} className="h-11" />
-            </div>
+            <div className="space-y-1.5"><Label>Nama Toko</Label><Input value={storeName} onChange={e => setStoreName(e.target.value)} className="h-11" /></div>
+            <div className="space-y-1.5"><Label>Alamat</Label><Input value={storeAddr} onChange={e => setStoreAddr(e.target.value)} className="h-11" /></div>
+            <div className="space-y-1.5"><Label>Telepon</Label><Input value={storePhone} onChange={e => setStorePhone(e.target.value)} className="h-11" type="tel" /></div>
+            <div className="space-y-1.5"><Label>Receipt Footer</Label><Input value={storeFooter} onChange={e => setStoreFooter(e.target.value)} className="h-11" /></div>
             <Button className="w-full h-11" onClick={saveStore} disabled={updateStoreSetting.isPending}>
               {updateStoreSetting.isPending ? 'Menyimpan…' : 'Simpan'}
             </Button>
@@ -828,37 +915,19 @@ export default function Pengaturan() {
       {/* Category Dialog */}
       <Dialog open={catDialog} onOpenChange={setCatDialog}>
         <DialogContent className="max-w-[95vw] rounded-xl">
-          <DialogHeader>
-            <DialogTitle>{catEditId ? 'Edit' : 'Tambah'} Kategori</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>{catEditId ? 'Edit' : 'Tambah'} Kategori</DialogTitle></DialogHeader>
           <div className="space-y-4 mt-2">
-            <div className="space-y-1.5">
-              <Label>Nama Kategori</Label>
-              <Input value={catName} onChange={e => setCatName(e.target.value)} placeholder="Contoh: Snack" className="h-11" />
-            </div>
+            <div className="space-y-1.5"><Label>Nama Kategori</Label><Input value={catName} onChange={e => setCatName(e.target.value)} placeholder="Contoh: Snack" className="h-11" /></div>
             <div className="space-y-1.5">
               <Label>Ikon</Label>
               <div className="flex flex-wrap gap-2">
                 {emojiOptions.map(e => (
-                  <button
-                    key={e}
-                    onClick={() => setCatIcon(e)}
-                    className={`w-10 h-10 rounded-lg text-lg flex items-center justify-center border-2 transition-colors ${catIcon === e ? 'border-primary bg-primary/5' : 'border-muted'}`}
-                  >
-                    {e}
-                  </button>
+                  <button key={e} onClick={() => setCatIcon(e)} className={`w-10 h-10 rounded-lg text-lg flex items-center justify-center border-2 transition-colors ${catIcon === e ? 'border-primary bg-primary/5' : 'border-muted'}`}>{e}</button>
                 ))}
               </div>
             </div>
-            <div className="space-y-1.5">
-              <Label>Warna</Label>
-              <Input type="color" value={catColor} onChange={e => setCatColor(e.target.value)} className="h-11 w-20" />
-            </div>
-            <Button
-              className="w-full h-11"
-              onClick={saveCat}
-              disabled={!catName.trim() || createCategory.isPending || updateCategory.isPending}
-            >
+            <div className="space-y-1.5"><Label>Warna</Label><Input type="color" value={catColor} onChange={e => setCatColor(e.target.value)} className="h-11 w-20" /></div>
+            <Button className="w-full h-11" onClick={saveCat} disabled={!catName.trim() || createCategory.isPending || updateCategory.isPending}>
               {createCategory.isPending || updateCategory.isPending ? 'Menyimpan…' : 'Simpan'}
             </Button>
           </div>
@@ -870,15 +939,11 @@ export default function Pengaturan() {
         <AlertDialogContent className="max-w-[90vw] rounded-xl">
           <AlertDialogHeader>
             <AlertDialogTitle>Hapus Kategori?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Produk yang menggunakan kategori ini perlu dikaitkan ulang ke kategori lain.
-            </AlertDialogDescription>
+            <AlertDialogDescription>Produk yang menggunakan kategori ini perlu dikaitkan ulang ke kategori lain.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Batal</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDeleteCat} className="bg-destructive text-destructive-foreground">
-              Hapus
-            </AlertDialogAction>
+            <AlertDialogAction onClick={confirmDeleteCat} className="bg-destructive text-destructive-foreground">Hapus</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -886,34 +951,16 @@ export default function Pengaturan() {
       {/* Payment Method Dialog */}
       <Dialog open={pmDialog} onOpenChange={setPmDialog}>
         <DialogContent className="max-w-[95vw] rounded-xl">
-          <DialogHeader>
-            <DialogTitle>{pmEditId ? 'Edit' : 'Tambah'} Metode Pembayaran</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>{pmEditId ? 'Edit' : 'Tambah'} Metode Pembayaran</DialogTitle></DialogHeader>
           <div className="space-y-4 mt-2">
-            <div className="space-y-1.5">
-              <Label>Nama</Label>
-              <Input
-                value={pmName}
-                onChange={e => setPmName(e.target.value)}
-                placeholder="Contoh: GoPay, Dana, BCA"
-                className="h-11"
-              />
-            </div>
+            <div className="space-y-1.5"><Label>Nama</Label><Input value={pmName} onChange={e => setPmName(e.target.value)} placeholder="Contoh: GoPay, Dana, BCA" className="h-11" /></div>
             <div className="space-y-1.5">
               <Label>Kategori</Label>
               <div className="grid grid-cols-2 gap-2">
                 {PAYMENT_CATEGORIES.map(c => (
-                  <button
-                    key={c.value}
-                    type="button"
-                    onClick={() => setPmCategory(c.value)}
-                    className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition-colors ${pmCategory === c.value
-                        ? 'border-primary bg-primary/5 text-primary'
-                        : 'border-muted text-muted-foreground'
-                      }`}
-                  >
-                    <span>{c.emoji}</span>
-                    {c.label}
+                  <button key={c.value} type="button" onClick={() => setPmCategory(c.value)}
+                    className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition-colors ${pmCategory === c.value ? 'border-primary bg-primary/5 text-primary' : 'border-muted text-muted-foreground'}`}>
+                    <span>{c.emoji}</span>{c.label}
                   </button>
                 ))}
               </div>
@@ -921,25 +968,14 @@ export default function Pengaturan() {
             <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
               <div>
                 <p className="text-sm font-medium">Jadikan Default</p>
-                <p className="text-[10px] text-muted-foreground">
-                  Otomatis terpilih saat kasir buka transaksi baru
-                </p>
+                <p className="text-[10px] text-muted-foreground">Otomatis terpilih saat kasir buka transaksi baru</p>
               </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={pmIsDefault}
-                onClick={() => setPmIsDefault(v => !v)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${pmIsDefault ? 'bg-primary' : 'bg-muted-foreground/30'}`}
-              >
+              <button type="button" role="switch" aria-checked={pmIsDefault} onClick={() => setPmIsDefault(v => !v)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${pmIsDefault ? 'bg-primary' : 'bg-muted-foreground/30'}`}>
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${pmIsDefault ? 'translate-x-6' : 'translate-x-1'}`} />
               </button>
             </div>
-            <Button
-              className="w-full h-11"
-              onClick={savePm}
-              disabled={!pmName.trim() || createPaymentMethod.isPending || updatePaymentMethod.isPending}
-            >
+            <Button className="w-full h-11" onClick={savePm} disabled={!pmName.trim() || createPaymentMethod.isPending || updatePaymentMethod.isPending}>
               {createPaymentMethod.isPending || updatePaymentMethod.isPending ? 'Menyimpan…' : 'Simpan'}
             </Button>
           </div>
@@ -951,17 +987,11 @@ export default function Pengaturan() {
         <AlertDialogContent className="max-w-[90vw] rounded-xl">
           <AlertDialogHeader>
             <AlertDialogTitle>Nonaktifkan "{pmDeactivateTarget?.name}"?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Metode ini tidak akan muncul di pilihan transaksi baru, tapi riwayat transaksi lama tetap aman.
-              Kamu bisa aktifkan lagi kapan saja lewat tombol Edit.
-            </AlertDialogDescription>
+            <AlertDialogDescription>Metode ini tidak akan muncul di pilihan transaksi baru, tapi riwayat lama tetap aman.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Batal</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmDeactivatePm}
-              disabled={deactivatePaymentMethod.isPending}
-            >
+            <AlertDialogAction onClick={confirmDeactivatePm} disabled={deactivatePaymentMethod.isPending}>
               {deactivatePaymentMethod.isPending ? 'Memproses…' : 'Nonaktifkan'}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -973,19 +1003,66 @@ export default function Pengaturan() {
         <AlertDialogContent className="max-w-[90vw] rounded-xl">
           <AlertDialogHeader>
             <AlertDialogTitle>Hapus Permanen "{pmDeleteTarget?.name}"?</AlertDialogTitle>
+            <AlertDialogDescription>Metode yang masih dipakai di transaksi tidak dapat dihapus. Data tidak bisa dipulihkan.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Batal</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeletePm} className="bg-destructive text-destructive-foreground" disabled={deletePaymentMethod.isPending}>
+              {deletePaymentMethod.isPending ? 'Menghapus…' : 'Hapus Permanen'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Expense Category Dialog */}
+      <Dialog open={expCatDialog} onOpenChange={setExpCatDialog}>
+        <DialogContent className="max-w-[95vw] rounded-xl">
+          <DialogHeader><DialogTitle>{expCatEditId ? 'Edit' : 'Tambah'} Kategori Pengeluaran</DialogTitle></DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div className="space-y-1.5">
+              <Label>Nama Kategori</Label>
+              <Input value={expCatName} onChange={e => setExpCatName(e.target.value)} placeholder="Contoh: Internet, Marketing" className="h-11" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Ikon</Label>
+              <div className="flex flex-wrap gap-2">
+                {EXPENSE_EMOJI_OPTIONS.map(e => (
+                  <button key={e} onClick={() => setExpCatIcon(e)}
+                    className={`w-10 h-10 rounded-lg text-lg flex items-center justify-center border-2 transition-colors ${expCatIcon === e ? 'border-primary bg-primary/5' : 'border-muted'}`}>
+                    {e}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Warna</Label>
+              <Input type="color" value={expCatColor} onChange={e => setExpCatColor(e.target.value)} className="h-11 w-20" />
+            </div>
+            <Button className="w-full h-11" onClick={saveExpCat}
+              disabled={!expCatName.trim() || createExpenseCategory.isPending || updateExpenseCategory.isPending}>
+              {createExpenseCategory.isPending || updateExpenseCategory.isPending ? 'Menyimpan…' : 'Simpan'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Expense Category Delete */}
+      <AlertDialog open={!!expCatDeleteTarget} onOpenChange={open => { if (!open) setExpCatDeleteTarget(null); }}>
+        <AlertDialogContent className="max-w-[90vw] rounded-xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Hapus Kategori "{expCatDeleteTarget?.name}"?</AlertDialogTitle>
             <AlertDialogDescription>
-              Metode yang sudah dipakai di transaksi tidak dapat dihapus. Jika berhasil, data tidak bisa
-              dipulihkan.
+              Kategori yang masih dipakai oleh pengeluaran aktif tidak dapat dihapus.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Batal</AlertDialogCancel>
             <AlertDialogAction
-              onClick={confirmDeletePm}
+              onClick={confirmDeleteExpCat}
               className="bg-destructive text-destructive-foreground"
-              disabled={deletePaymentMethod.isPending}
+              disabled={deleteExpenseCategory.isPending}
             >
-              {deletePaymentMethod.isPending ? 'Menghapus…' : 'Hapus Permanen'}
+              {deleteExpenseCategory.isPending ? 'Menghapus…' : 'Hapus'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -994,41 +1071,23 @@ export default function Pengaturan() {
       {/* Unit Dialog */}
       <Dialog open={unitDialog} onOpenChange={setUnitDialog}>
         <DialogContent className="max-w-[95vw] rounded-xl">
-          <DialogHeader>
-            <DialogTitle>{unitEditId ? 'Edit' : 'Tambah'} Satuan</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>{unitEditId ? 'Edit' : 'Tambah'} Satuan</DialogTitle></DialogHeader>
           <div className="space-y-4 mt-2">
             <div className="space-y-1.5">
               <Label>Nama Satuan</Label>
-              <Input
-                value={unitName}
-                onChange={e => setUnitName(e.target.value)}
-                placeholder="Contoh: pak, lusin, mangkok"
-                className="h-11"
-              />
+              <Input value={unitName} onChange={e => setUnitName(e.target.value)} placeholder="Contoh: pak, lusin, mangkok" className="h-11" />
             </div>
             <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
               <div>
                 <p className="text-sm font-medium">Jadikan Default</p>
-                <p className="text-[10px] text-muted-foreground">
-                  Satuan ini otomatis terpilih saat tambah produk baru
-                </p>
+                <p className="text-[10px] text-muted-foreground">Satuan ini otomatis terpilih saat tambah produk baru</p>
               </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={unitIsDefault}
-                onClick={() => setUnitIsDefault(v => !v)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${unitIsDefault ? 'bg-primary' : 'bg-muted-foreground/30'}`}
-              >
+              <button type="button" role="switch" aria-checked={unitIsDefault} onClick={() => setUnitIsDefault(v => !v)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${unitIsDefault ? 'bg-primary' : 'bg-muted-foreground/30'}`}>
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${unitIsDefault ? 'translate-x-6' : 'translate-x-1'}`} />
               </button>
             </div>
-            <Button
-              className="w-full h-11"
-              onClick={saveUnit}
-              disabled={!unitName.trim() || createUnit.isPending || updateUnit.isPending}
-            >
+            <Button className="w-full h-11" onClick={saveUnit} disabled={!unitName.trim() || createUnit.isPending || updateUnit.isPending}>
               {createUnit.isPending || updateUnit.isPending ? 'Menyimpan…' : 'Simpan'}
             </Button>
           </div>
@@ -1041,17 +1100,12 @@ export default function Pengaturan() {
           <AlertDialogHeader>
             <AlertDialogTitle>Hapus Satuan "{unitDeleteTarget?.name}"?</AlertDialogTitle>
             <AlertDialogDescription>
-              Produk yang sudah memakai satuan ini tetap tersimpan, tapi satuan tidak akan muncul
-              lagi di pilihan saat tambah atau edit produk baru.
+              Produk yang sudah memakai satuan ini tetap tersimpan, tapi satuan tidak akan muncul lagi di pilihan saat tambah atau edit produk baru.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Batal</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmDeleteUnit}
-              className="bg-destructive text-destructive-foreground"
-              disabled={deleteUnit.isPending}
-            >
+            <AlertDialogAction onClick={confirmDeleteUnit} className="bg-destructive text-destructive-foreground" disabled={deleteUnit.isPending}>
               {deleteUnit.isPending ? 'Menghapus…' : 'Hapus'}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -1063,18 +1117,11 @@ export default function Pengaturan() {
         <AlertDialogContent className="max-w-[90vw] rounded-xl">
           <AlertDialogHeader>
             <AlertDialogTitle>Keluar dari Akun?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Anda akan diarahkan ke halaman login. Pastikan tidak ada open bill yang belum disimpan.
-            </AlertDialogDescription>
+            <AlertDialogDescription>Anda akan diarahkan ke halaman login. Pastikan tidak ada open bill yang belum disimpan.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Batal</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleLogout}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Keluar
-            </AlertDialogAction>
+            <AlertDialogAction onClick={handleLogout} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Keluar</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -1086,9 +1133,7 @@ export default function Pengaturan() {
 function Step({ n, children }: { n: number; children: React.ReactNode }) {
   return (
     <div className="flex items-start gap-3">
-      <div className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0 text-xs font-bold">
-        {n}
-      </div>
+      <div className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0 text-xs font-bold">{n}</div>
       <p className="text-sm flex-1">{children}</p>
     </div>
   );
