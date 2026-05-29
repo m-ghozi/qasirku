@@ -43,6 +43,8 @@ export const ALL_PERMISSIONS: PermissionKey[] = [
   'view_reports',
   'manage_backup',
   'manage_store_settings',
+  'manage_expenses',
+  'view_expenses'
 ];
 
 export const PERMISSION_LABELS: Record<PermissionKey, { title: string; desc: string }> = {

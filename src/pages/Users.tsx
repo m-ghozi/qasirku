@@ -172,7 +172,6 @@ export default function UsersPage() {
       { id: pinTarget.id, payload: { pin: newPin } },
       {
         onSuccess: () => {
-          toast.success(`PIN ${pinTarget.name} berhasil direset`);
           setPinDialogOpen(false);
         },
       }
@@ -456,8 +455,8 @@ export default function UsersPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Hapus Akun {deleteTarget?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              Akun akan dihapus permanen. Riwayat transaksi yang dibuat akun ini tidak terhapus,
-              tapi nama kasir akan tampil sebagai "—".
+              Akun akan dinonaktifkan secara permanen dan tidak bisa login
+              lagi. Riwayat transaksi tetap tersimpan.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
