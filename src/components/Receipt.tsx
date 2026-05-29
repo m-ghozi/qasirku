@@ -118,9 +118,10 @@ export default function Receipt({ open, onClose, transaction, items, storeSettin
       
       lines.push('\x1B\x61\x00'); // Left align
       for (const item of items) {
+        const itemSubtotal = item.subtotal ?? item.totalPrice;
         lines.push(`${item.productName}\n`);
         if (item.notes) lines.push(`  ${item.notes}\n`);
-        lines.push(`  ${item.quantity} x Rp ${item.price.toLocaleString('id-ID')}  Rp ${item.subtotal.toLocaleString('id-ID')}\n`);
+        lines.push(`  ${item.quantity} x Rp ${item.price.toLocaleString('id-ID')}  Rp ${itemSubtotal.toLocaleString('id-ID')}\n`);
       }
       
       lines.push('--------------------------------\n');
@@ -204,22 +205,26 @@ export default function Receipt({ open, onClose, transaction, items, storeSettin
           <div className="border-t border-dashed border-gray-400 my-2" />
 
           {/* Items */}
-          {items.map((item, i) => (
-            <div key={i} className="mb-1">
-              <p className="text-[11px] font-medium">{item.productName}</p>
-              {item.notes && <p className="text-[9px] text-gray-500 italic">  {item.notes}</p>}
-              <div className="flex justify-between text-[10px]">
-                <span>{item.quantity} x {rp(item.price)}</span>
-                <span>{rp(item.subtotal)}</span>
-              </div>
-              {item.discountAmount > 0 && (
-                <div className="flex justify-between text-[10px] text-gray-500">
-                  <span>  Diskon</span>
-                  <span>-{rp(item.discountAmount)}</span>
+          {items.map((item, i) => {
+            const itemSubtotal    = item.subtotal    ?? item.totalPrice;
+            const itemDiscountAmt = item.discountAmount ?? 0;
+            return (
+              <div key={i} className="mb-1">
+                <p className="text-[11px] font-medium">{item.productName}</p>
+                {item.notes && <p className="text-[9px] text-gray-500 italic">  {item.notes}</p>}
+                <div className="flex justify-between text-[10px]">
+                  <span>{item.quantity} x {rp(item.price)}</span>
+                  <span>{rp(itemSubtotal)}</span>
                 </div>
-              )}
-            </div>
-          ))}
+                {itemDiscountAmt > 0 && (
+                  <div className="flex justify-between text-[10px] text-gray-500">
+                    <span>  Diskon</span>
+                    <span>-{rp(itemDiscountAmt)}</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
 
           <div className="border-t border-dashed border-gray-400 my-2" />
 

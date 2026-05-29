@@ -1,16 +1,37 @@
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Transaction, type TransactionItemRecord } from '@/lib/db';
+/**
+ * TransactionHistory.tsx — MIGRATED (API hooks)
+ *
+ * Perubahan dari versi Dexie:
+ *  - useLiveQuery(db.transactions) → useTransactions()
+ *  - useLiveQuery(db.transactionItems) → items sudah embedded di transaction.items
+ *  - useLiveQuery(db.paymentMethods) → nama metode bayar dari transaction.paymentMethod?.name
+ *  - useLiveQuery(db.storeSettings) → useStoreSetting()
+ *  - useLiveQuery(db.users) → nama kasir dari transaction.createdBy?.name
+ *  - handleDeleteTransaction (Dexie manual) → useCancelTransaction() mutation
+ *  - multiUserEnabled dihapus: kolom kasir selalu tampil jika createdBy ada
+ *  - Opsi "kembalikan stok" dihapus: backend yang handle rollback stok saat cancel
+ *  - getTxItems(txId) dihapus: pakai tx.items ?? [] langsung
+ *  - Transaction.id sekarang number (bukan optional), date adalah string ISO
+ */
+
 import { useState, useEffect } from 'react';
 import { format, startOfDay, endOfDay } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';
-import { ArrowLeft, Search, Receipt as ReceiptIcon, Calendar, ChevronRight, ShoppingBag, CalendarIcon, X, Trash2, ShoppingCart, UserCircle2 } from 'lucide-react';
+import {
+  ArrowLeft, Search, Receipt as ReceiptIcon, Calendar,
+  ChevronRight, ShoppingBag, CalendarIcon, X, Trash2,
+  ShoppingCart, UserCircle2,
+} from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Checkbox } from '@/components/ui/checkbox';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarPicker } from '@/components/ui/calendar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -19,11 +40,16 @@ import { cn } from '@/lib/utils';
 import ReceiptDialog from '@/components/Receipt';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
+import { useTransactions, useCancelTransaction } from '@/hooks/use-transactions';
+import { useStoreSetting } from '@/hooks/use-store-setting';
+import type { Transaction, TransactionItem } from '@/services/transaction.service';
 
 export default function TransactionHistory() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { can, multiUserEnabled } = useAuth();
+  const { can } = useAuth();
+
+  // ── State ──────────────────────────────────────────────────────────────────
   const [search, setSearch] = useState('');
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -31,39 +57,40 @@ export default function TransactionHistory() {
   const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined);
   const [dateTo, setDateTo] = useState<Date | undefined>(undefined);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [restoreStock, setRestoreStock] = useState(true);
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'open'>('all');
   const [filterCashier, setFilterCashier] = useState<string>('all');
 
-  const transactions = useLiveQuery(() =>
-    db.transactions.orderBy('date').reverse().toArray()
+  // ── API hooks ──────────────────────────────────────────────────────────────
+  const { data: transactions = [], isLoading } = useTransactions();
+  const { data: storeSetting } = useStoreSetting();
+  const cancelTransaction = useCancelTransaction();
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  const getTxItems = (tx: Transaction): TransactionItem[] => tx.items ?? [];
+
+  const getPaymentName = (tx: Transaction): string =>
+    tx.paymentMethod?.name ?? 'Tunai';
+
+  const cashierName = (tx: Transaction): string =>
+    tx.createdBy?.name ?? '—';
+
+  // Daftar kasir unik dari data transaksi (untuk filter dropdown)
+  const cashierList = Array.from(
+    new Map(
+      transactions
+        .filter(tx => tx.createdBy)
+        .map(tx => [tx.createdBy!.id, tx.createdBy!])
+    ).values()
   );
+  const showCashierCol = transactions.some(tx => tx.createdBy);
 
-  // Query all transaction items and build lookup map
-  const txItemsMap = useLiveQuery(async () => {
-    const items = await db.transactionItems.toArray();
-    const map: Record<number, TransactionItemRecord[]> = {};
-    for (const item of items) {
-      if (!map[item.transactionId]) map[item.transactionId] = [];
-      map[item.transactionId].push(item);
-    }
-    return map;
-  });
-
-  const getTxItems = (txId: number | undefined): TransactionItemRecord[] =>
-    txId ? (txItemsMap?.[txId] ?? []) : [];
-  const paymentMethods = useLiveQuery(() => db.paymentMethods.toArray());
-  const storeSettings = useLiveQuery(() => db.storeSettings.toCollection().first());
-  const users = useLiveQuery(() => db.users.toArray());
-
-  const userById = (uid?: number) => (uid ? users?.find((u) => u.id === uid) : undefined);
-  const cashierName = (uid?: number) => userById(uid)?.name ?? '—';
-
-  // Auto-open detail if txId is in URL
+  // ── Auto-open detail dari URL param ───────────────────────────────────────
   const txIdParam = searchParams.get('txId');
   useEffect(() => {
-    if (txIdParam && transactions) {
-      const tx = transactions.find(t => t.id === Number(txIdParam) || t.receiptNumber === txIdParam);
+    if (txIdParam && transactions.length > 0) {
+      const tx = transactions.find(
+        t => String(t.id) === txIdParam || t.receiptNumber === txIdParam
+      );
       if (tx) {
         setSelectedTx(tx);
         setDetailOpen(true);
@@ -71,54 +98,47 @@ export default function TransactionHistory() {
     }
   }, [txIdParam, transactions]);
 
-  const getPaymentName = (pmId: number) =>
-    paymentMethods?.find(pm => pm.id === pmId)?.name || 'Tunai';
-
-  const filtered = transactions?.filter(tx => {
-    // Status filter
+  // ── Filter ─────────────────────────────────────────────────────────────────
+  const filtered = transactions.filter(tx => {
     if (filterStatus !== 'all' && tx.status !== filterStatus) return false;
-    // Cashier filter
+
     if (filterCashier !== 'all') {
       if (filterCashier === 'unknown') {
-        if (tx.createdBy !== undefined && tx.createdBy !== null) return false;
-      } else if (String(tx.createdBy) !== filterCashier) {
+        if (tx.createdBy) return false;
+      } else if (String(tx.createdBy?.id) !== filterCashier) {
         return false;
       }
     }
-    // Date filter
-    if (dateFrom) {
-      const txDate = new Date(tx.date);
-      if (txDate < startOfDay(dateFrom)) return false;
-    }
-    if (dateTo) {
-      const txDate = new Date(tx.date);
-      if (txDate > endOfDay(dateTo)) return false;
-    }
-    // Search filter
+
+    if (dateFrom && new Date(tx.date) < startOfDay(dateFrom)) return false;
+    if (dateTo && new Date(tx.date) > endOfDay(dateTo)) return false;
+
     if (search) {
       const q = search.toLowerCase();
-      const items = getTxItems(tx.id);
       return (
         tx.receiptNumber.toLowerCase().includes(q) ||
-        items.some(it => it.productName.toLowerCase().includes(q))
+        getTxItems(tx).some(it => (it.productName ?? '').toLowerCase().includes(q))
       );
     }
     return true;
-  }) ?? [];
+  });
 
-  // Group by date
+  // ── Group by date ──────────────────────────────────────────────────────────
   const grouped = filtered.reduce<Record<string, Transaction[]>>((acc, tx) => {
     const key = format(new Date(tx.date), 'yyyy-MM-dd');
     if (!acc[key]) acc[key] = [];
     acc[key].push(tx);
     return acc;
   }, {});
-
   const dateKeys = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
 
-  const filteredTotal = filtered.filter(t => t.status !== 'open').reduce((s, t) => s + t.total, 0);
-  const hasDateFilter = dateFrom || dateTo;
+  const filteredTotal = filtered
+    .filter(t => t.status !== 'open')
+    .reduce((s, t) => s + t.total, 0);
 
+  const hasDateFilter = !!dateFrom || !!dateTo;
+
+  // ── Handlers ───────────────────────────────────────────────────────────────
   const openDetail = (tx: Transaction) => {
     setSelectedTx(tx);
     setDetailOpen(true);
@@ -134,31 +154,24 @@ export default function TransactionHistory() {
     setDateTo(undefined);
   };
 
-  const handleDeleteTransaction = async () => {
-    if (!selectedTx?.id) return;
-    try {
-      if (restoreStock) {
-        const items = getTxItems(selectedTx.id);
-        for (const item of items) {
-          const product = await db.products.get(item.productId);
-          if (product) {
-            await db.products.update(item.productId, { stock: product.stock + item.quantity });
-          }
-        }
-      }
-      await db.transactionItems.where('transactionId').equals(selectedTx.id).delete();
-      await db.transactions.delete(selectedTx.id);
-      setDeleteDialogOpen(false);
-      setDetailOpen(false);
-      setSelectedTx(null);
-      toast.success('Transaksi berhasil dihapus');
-    } catch {
-      toast.error('Gagal menghapus transaksi');
-    }
+  const handleCancelTransaction = () => {
+    if (!selectedTx) return;
+    cancelTransaction.mutate(selectedTx.id, {
+      onSuccess: () => {
+        toast.success('Transaksi berhasil dihapus');
+        setDeleteDialogOpen(false);
+        setDetailOpen(false);
+        setSelectedTx(null);
+      },
+      onError: () => {
+        toast.error('Gagal menghapus transaksi');
+      },
+    });
   };
 
   const rp = (n: number) => `Rp ${n.toLocaleString('id-ID')}`;
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="px-4 pt-6 pb-4">
       {/* Header */}
@@ -187,7 +200,10 @@ export default function TransactionHistory() {
       <div className="flex items-center gap-2 mb-4">
         <Popover>
           <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className={cn("h-9 text-xs gap-1.5 flex-1", dateFrom && "border-primary text-primary")}>
+            <Button
+              variant="outline" size="sm"
+              className={cn('h-9 text-xs gap-1.5 flex-1', dateFrom && 'border-primary text-primary')}
+            >
               <CalendarIcon className="w-3.5 h-3.5" />
               {dateFrom ? format(dateFrom, 'dd MMM yyyy', { locale: localeId }) : 'Dari tanggal'}
             </Button>
@@ -198,7 +214,7 @@ export default function TransactionHistory() {
               selected={dateFrom}
               onSelect={setDateFrom}
               initialFocus
-              className={cn("p-3 pointer-events-auto")}
+              className={cn('p-3 pointer-events-auto')}
             />
           </PopoverContent>
         </Popover>
@@ -207,7 +223,10 @@ export default function TransactionHistory() {
 
         <Popover>
           <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className={cn("h-9 text-xs gap-1.5 flex-1", dateTo && "border-primary text-primary")}>
+            <Button
+              variant="outline" size="sm"
+              className={cn('h-9 text-xs gap-1.5 flex-1', dateTo && 'border-primary text-primary')}
+            >
               <CalendarIcon className="w-3.5 h-3.5" />
               {dateTo ? format(dateTo, 'dd MMM yyyy', { locale: localeId }) : 'Sampai tanggal'}
             </Button>
@@ -218,7 +237,7 @@ export default function TransactionHistory() {
               selected={dateTo}
               onSelect={setDateTo}
               initialFocus
-              className={cn("p-3 pointer-events-auto")}
+              className={cn('p-3 pointer-events-auto')}
             />
           </PopoverContent>
         </Popover>
@@ -242,7 +261,9 @@ export default function TransactionHistory() {
             onClick={() => setFilterStatus(tab.value)}
             className={cn(
               'px-3 py-1.5 rounded-full text-xs font-semibold transition-colors',
-              filterStatus === tab.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+              filterStatus === tab.value
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-muted-foreground'
             )}
           >
             {tab.label}
@@ -250,8 +271,8 @@ export default function TransactionHistory() {
         ))}
       </div>
 
-      {/* Cashier filter (only when multi-user is on) */}
-      {multiUserEnabled && users && users.length > 0 && (
+      {/* Cashier filter — tampil hanya jika ada data kasir */}
+      {showCashierCol && (
         <div className="mb-4">
           <Select value={filterCashier} onValueChange={setFilterCashier}>
             <SelectTrigger className="h-9 text-xs">
@@ -262,7 +283,7 @@ export default function TransactionHistory() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Semua Kasir</SelectItem>
-              {users.map((u) => (
+              {cashierList.map(u => (
                 <SelectItem key={u.id} value={String(u.id)}>
                   {u.name} (@{u.username})
                 </SelectItem>
@@ -291,8 +312,10 @@ export default function TransactionHistory() {
         </div>
       )}
 
-      {/* Transaction list grouped by date */}
-      {dateKeys.length === 0 ? (
+      {/* Transaction list */}
+      {isLoading ? (
+        <p className="text-xs text-muted-foreground text-center py-16">Memuat data...</p>
+      ) : dateKeys.length === 0 ? (
         <div className="text-center py-16">
           <ShoppingBag className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
           <p className="text-sm text-muted-foreground">
@@ -315,32 +338,47 @@ export default function TransactionHistory() {
               <div className="space-y-2">
                 {grouped[dateKey].map(tx => (
                   <Card
-                    key={tx.id ?? tx.receiptNumber}
+                    key={tx.id}
                     className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow active:scale-[0.99]"
                     onClick={() => openDetail(tx)}
                   >
                     <CardContent className="p-3 flex items-center gap-3">
-                      <div className={cn('w-9 h-9 rounded-lg flex items-center justify-center shrink-0', tx.status === 'open' ? 'bg-warning/10 text-warning' : 'bg-primary/10 text-primary')}>
-                        {tx.status === 'open' ? <ShoppingCart className="w-4 h-4" /> : <ReceiptIcon className="w-4 h-4" />}
+                      <div className={cn(
+                        'w-9 h-9 rounded-lg flex items-center justify-center shrink-0',
+                        tx.status === 'open'
+                          ? 'bg-warning/10 text-warning'
+                          : 'bg-primary/10 text-primary'
+                      )}>
+                        {tx.status === 'open'
+                          ? <ShoppingCart className="w-4 h-4" />
+                          : <ReceiptIcon className="w-4 h-4" />}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-1.5">
-                            <p className="text-xs font-mono text-muted-foreground truncate">{tx.receiptNumber}</p>
+                            <p className="text-xs font-mono text-muted-foreground truncate">
+                              {tx.receiptNumber}
+                            </p>
                             {tx.status === 'open' ? (
-                              <Badge variant="secondary" className="text-[9px] h-4 px-1.5 bg-warning/20 text-warning border-warning/30">Open</Badge>
+                              <Badge variant="secondary" className="text-[9px] h-4 px-1.5 bg-warning/20 text-warning border-warning/30">
+                                Open
+                              </Badge>
                             ) : (
-                              <Badge variant="secondary" className="text-[9px] h-4 px-1.5 bg-success/20 text-success border-success/30">Lunas</Badge>
+                              <Badge variant="secondary" className="text-[9px] h-4 px-1.5 bg-success/20 text-success border-success/30">
+                                Lunas
+                              </Badge>
                             )}
                           </div>
-                          <p className="text-xs text-muted-foreground">{format(new Date(tx.date), 'HH:mm')}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {format(new Date(tx.date), 'HH:mm')}
+                          </p>
                         </div>
                         <p className="text-sm font-bold text-primary">{rp(tx.total)}</p>
                         <div className="flex items-center gap-2 text-[10px] text-muted-foreground truncate">
-                          {multiUserEnabled && (
+                          {tx.createdBy && (
                             <span className="flex items-center gap-0.5">
                               <UserCircle2 className="w-3 h-3" />
-                              {cashierName(tx.createdBy)}
+                              {tx.createdBy.name}
                             </span>
                           )}
                           {tx.customerName && <span>👤 {tx.customerName}</span>}
@@ -348,7 +386,7 @@ export default function TransactionHistory() {
                           {tx.remarks && <span>📝 {tx.remarks}</span>}
                         </div>
                         <p className="text-[10px] text-muted-foreground truncate">
-                          {getTxItems(tx.id).map(it => it.productName).join(', ')}
+                          {getTxItems(tx).map(it => it.productName).join(', ')}
                         </p>
                       </div>
                       <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
@@ -363,16 +401,23 @@ export default function TransactionHistory() {
 
       {/* Detail Sheet */}
       <Sheet open={detailOpen} onOpenChange={setDetailOpen}>
-        <SheetContent side="bottom" className="h-[80vh] rounded-t-2xl max-w-lg md:max-w-xl mx-auto flex flex-col">
+        <SheetContent
+          side="bottom"
+          className="h-[80vh] rounded-t-2xl max-w-lg md:max-w-xl mx-auto flex flex-col"
+        >
           <SheetHeader className="shrink-0">
             <SheetTitle className="text-left">Detail Transaksi</SheetTitle>
           </SheetHeader>
           {selectedTx && (
             <div className="flex-1 overflow-y-auto mt-4 space-y-4 pb-6">
+              {/* Meta */}
               <div className="bg-muted/50 rounded-xl p-3 space-y-1">
                 <div className="flex justify-between text-xs">
                   <span className="text-muted-foreground">Status</span>
-                  <span className={cn('font-semibold', selectedTx.status === 'open' ? 'text-warning' : 'text-success')}>
+                  <span className={cn(
+                    'font-semibold',
+                    selectedTx.status === 'open' ? 'text-warning' : 'text-success'
+                  )}>
                     {selectedTx.status === 'open' ? 'Open Bill' : 'Lunas'}
                   </span>
                 </div>
@@ -382,60 +427,64 @@ export default function TransactionHistory() {
                 </div>
                 <div className="flex justify-between text-xs">
                   <span className="text-muted-foreground">Tanggal</span>
-                  <span>{format(new Date(selectedTx.date), 'dd MMM yyyy, HH:mm', { locale: localeId })}</span>
+                  <span>
+                    {format(new Date(selectedTx.date), 'dd MMM yyyy, HH:mm', { locale: localeId })}
+                  </span>
                 </div>
-                 <div className="flex justify-between text-xs">
-                   <span className="text-muted-foreground">Pembayaran</span>
-                   <span>{selectedTx.status === 'open' ? '-' : getPaymentName(selectedTx.paymentMethodId)}</span>
-                 </div>
-                 {multiUserEnabled && (
-                   <div className="flex justify-between text-xs">
-                     <span className="text-muted-foreground">Kasir</span>
-                     <span className="flex items-center gap-1">
-                       <UserCircle2 className="w-3 h-3" />
-                       {cashierName(selectedTx.createdBy)}
-                     </span>
-                   </div>
-                 )}
-                 {selectedTx.customerName && (
-                   <div className="flex justify-between text-xs">
-                     <span className="text-muted-foreground">Pelanggan</span>
-                     <span>👤 {selectedTx.customerName}</span>
-                   </div>
-                 )}
-                 {selectedTx.tableNumber && (
-                   <div className="flex justify-between text-xs">
-                     <span className="text-muted-foreground">Meja</span>
-                     <span>{selectedTx.tableNumber}</span>
-                   </div>
-                 )}
-                  {selectedTx.remarks && (
-                    <div className="flex justify-between text-xs">
-                      <span className="text-muted-foreground">Catatan</span>
-                      <span className="text-right max-w-[60%]">{selectedTx.remarks}</span>
-                    </div>
-                  )}
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">Pembayaran</span>
+                  <span>{selectedTx.status === 'open' ? '-' : getPaymentName(selectedTx)}</span>
                 </div>
+                {selectedTx.createdBy && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Kasir</span>
+                    <span className="flex items-center gap-1">
+                      <UserCircle2 className="w-3 h-3" />
+                      {cashierName(selectedTx)}
+                    </span>
+                  </div>
+                )}
+                {selectedTx.customerName && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Pelanggan</span>
+                    <span>👤 {selectedTx.customerName}</span>
+                  </div>
+                )}
+                {selectedTx.tableNumber && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Meja</span>
+                    <span>{selectedTx.tableNumber}</span>
+                  </div>
+                )}
+                {selectedTx.remarks && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Catatan</span>
+                    <span className="text-right max-w-[60%]">{selectedTx.remarks}</span>
+                  </div>
+                )}
+              </div>
 
+              {/* Items */}
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-muted-foreground">Item</p>
-                {getTxItems(selectedTx.id).map((item, i) => (
+                {getTxItems(selectedTx).map((item, i) => (
                   <div key={i} className="flex justify-between items-start bg-muted/30 p-2.5 rounded-lg">
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium">{item.productName}</p>
                       <p className="text-[10px] text-muted-foreground">
                         {item.quantity} × {rp(item.price)}
-                        {item.discountAmount > 0 && ` (diskon ${rp(item.discountAmount)})`}
+                        {(item.discountAmount ?? 0) > 0 && ` (diskon ${rp(item.discountAmount!)})`}
                       </p>
                       {item.notes && (
                         <p className="text-[10px] text-accent mt-0.5">📝 {item.notes}</p>
                       )}
                     </div>
-                    <p className="text-sm font-semibold">{rp(item.subtotal)}</p>
+                    <p className="text-sm font-semibold">{rp(item.subtotal ?? item.totalPrice)}</p>
                   </div>
                 ))}
               </div>
 
+              {/* Totals */}
               <div className="border-t pt-3 space-y-1.5">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Subtotal</span>
@@ -471,8 +520,12 @@ export default function TransactionHistory() {
                 )}
               </div>
 
+              {/* Actions */}
               {selectedTx.status === 'open' ? (
-                <Button className="w-full h-11" onClick={() => { setDetailOpen(false); navigate('/cashier'); }}>
+                <Button
+                  className="w-full h-11"
+                  onClick={() => { setDetailOpen(false); navigate('/cashier'); }}
+                >
                   <ShoppingCart className="w-4 h-4 mr-2" />
                   Lanjutkan di Kasir
                 </Button>
@@ -486,8 +539,8 @@ export default function TransactionHistory() {
               <Button
                 variant="outline"
                 className="w-full h-11 text-destructive border-destructive/30 hover:bg-destructive/5"
-                onClick={() => { setRestoreStock(true); setDeleteDialogOpen(true); }}
-                disabled={!can('delete_transaction')}
+                onClick={() => setDeleteDialogOpen(true)}
+                disabled={!can('delete_transaction') || cancelTransaction.isPending}
                 title={!can('delete_transaction') ? 'Anda tidak punya akses untuk menghapus transaksi' : undefined}
               >
                 <Trash2 className="w-4 h-4 mr-2" />
@@ -504,38 +557,39 @@ export default function TransactionHistory() {
           open={receiptOpen}
           onClose={() => setReceiptOpen(false)}
           transaction={selectedTx}
-          items={getTxItems(selectedTx.id)}
-          storeSettings={storeSettings}
-          paymentMethodName={getPaymentName(selectedTx.paymentMethodId)}
-          cashierName={selectedTx.createdBy ? cashierName(selectedTx.createdBy) : undefined}
+          items={getTxItems(selectedTx)}
+          storeSettings={storeSetting}
+          paymentMethodName={getPaymentName(selectedTx)}
+          cashierName={selectedTx.createdBy?.name}
         />
       )}
 
       {/* Delete Confirmation */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      <AlertDialog
+        open={deleteDialogOpen}
+        onOpenChange={open => { if (!open) setDeleteDialogOpen(false); }}
+      >
         <AlertDialogContent className="max-w-[90vw] rounded-xl">
           <AlertDialogHeader>
             <AlertDialogTitle>Hapus Transaksi?</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3">
-                <p>Transaksi <span className="font-mono font-semibold">{selectedTx?.receiptNumber}</span> senilai <span className="font-semibold">Rp {selectedTx?.total.toLocaleString('id-ID')}</span> akan dihapus permanen.</p>
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="restore-stock"
-                    checked={restoreStock}
-                    onCheckedChange={(checked) => setRestoreStock(checked === true)}
-                  />
-                  <label htmlFor="restore-stock" className="text-sm cursor-pointer">
-                    Kembalikan stok produk
-                  </label>
-                </div>
-              </div>
+            <AlertDialogDescription>
+              Transaksi{' '}
+              <span className="font-mono font-semibold">{selectedTx?.receiptNumber}</span>{' '}
+              senilai{' '}
+              <span className="font-semibold">
+                Rp {selectedTx?.total.toLocaleString('id-ID')}
+              </span>{' '}
+              akan dihapus. Stok produk akan dikembalikan secara otomatis.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Batal</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteTransaction} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Hapus
+            <AlertDialogAction
+              onClick={handleCancelTransaction}
+              disabled={cancelTransaction.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {cancelTransaction.isPending ? 'Menghapus…' : 'Hapus'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
