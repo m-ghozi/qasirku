@@ -1,76 +1,122 @@
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type TransactionItemRecord } from '@/lib/db';
+/**
+ * Reports.tsx — MIGRATED (API hooks)
+ *
+ * API response shape (actual):
+ *  report.data = {
+ *    stats: { totalRevenue, totalProfit, totalSalesCount },
+ *    chartData: [{ date: 'dd/MM', revenue, transactions }],
+ *    topProducts: [{ name, revenue, profit, quantity }],
+ *  }
+ *
+ * Field mapping (API → komponen):
+ *  stats.totalRevenue      → totalSales (nilai yang sudah dibayar customer)
+ *  stats.totalProfit       → totalProfit / grossProfit
+ *  stats.totalSalesCount   → txCount
+ *  chartData[].revenue     → sales (untuk bar chart)
+ *  chartData[].date        → sudah dalam format 'dd/MM', tidak perlu re-format
+ *  topProducts[].revenue   → totalRevenue
+ *  topProducts[].profit    → totalProfit
+ *  topProducts[].quantity  → totalQty
+ */
+
 import { useState } from 'react';
-import { BarChart3, TrendingUp, ShoppingCart, Package, DollarSign, ArrowDown, ArrowUp, Minus } from 'lucide-react';
+import {
+  BarChart3, TrendingUp, ShoppingCart, Package,
+  DollarSign, ArrowDown, ArrowUp, Minus, Wallet,
+} from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
-import { format, subDays, startOfDay } from 'date-fns';
 import { useAuth } from '@/hooks/use-auth';
 import LockedPage from '@/components/LockedPage';
+import { useReport } from '@/hooks/use-report';
+import { useExpenseSummary } from '@/hooks/use-expenses';
+import type { RangePreset } from '@/services/expense.service';
 
 export default function Laporan() {
   const { can } = useAuth();
   const [period, setPeriod] = useState<'7' | '30'>('7');
-  const days = Number(period);
+  const days = Number(period) as 7 | 30;
 
-  const transactions = useLiveQuery(async () => {
-    const since = startOfDay(subDays(new Date(), days));
-    return db.transactions.where('date').aboveOrEqual(since).toArray();
-  }, [days]);
+  // ── API hooks (selalu dipanggil sebelum permission gate) ─────────────────
+  const { data: report, isLoading: reportLoading } = useReport(days);
+  const expenseRange = period as RangePreset;
+  const { data: expenseSummary, isLoading: expenseLoading } = useExpenseSummary({
+    range: expenseRange,
+  });
 
-  // Query transaction items for the filtered transactions
-  const txItems = useLiveQuery(async () => {
-    if (!transactions || transactions.length === 0) return [];
-    const txIds = transactions.map(t => t.id!).filter(Boolean);
-    return db.transactionItems.where('transactionId').anyOf(txIds).toArray();
-  }, [transactions]);
-
-  // Permission gate after all hooks have been called.
+  // ── Permission gate ───────────────────────────────────────────────────────
   if (!can('view_reports')) {
     return <LockedPage title="Laporan" permissionLabel="Lihat Laporan & Profit" />;
   }
 
-  const allItems = txItems ?? [];
+  const isLoading = reportLoading || expenseLoading;
 
-  const totalSales = transactions?.reduce((s, t) => s + t.total, 0) ?? 0;
-  const totalProfit = transactions?.reduce((s, t) => s + t.profit, 0) ?? 0;
-  const txCount = transactions?.length ?? 0;
+  // ── Derived values dari report.data.stats ────────────────────────────────
+  // API: { stats: { totalRevenue, totalProfit, totalSalesCount }, chartData, topProducts }
+  const stats = (report as any)?.stats ?? report ?? {};
+  const totalSales = Number(stats.totalRevenue ?? 0);   // pendapatan = harga jual
+  const grossProfit = Number(stats.totalProfit ?? 0);   // profit setelah HPP
+  const totalProfit = grossProfit;                          // alias untuk summary card
+  const txCount = Number(stats.totalSalesCount ?? stats.totalTransactions ?? 0);
 
-  // P&L breakdown
-  const totalRevenue = transactions?.reduce((s, t) => s + t.subtotal, 0) ?? 0;
-  const totalDiscount = transactions?.reduce((s, t) => s + t.discountAmount, 0) ?? 0;
-  const totalHpp = allItems.reduce((s, item) => s + item.hpp * item.quantity, 0);
-  const netSales = totalRevenue - totalDiscount; // same as totalSales
-  const grossProfit = netSales - totalHpp;
-  const marginPercent = netSales > 0 ? (grossProfit / netSales * 100) : 0;
+  // Field-field yang belum ada di endpoint ini → tampil 0 (tidak merusak UI)
+  const totalRevenue = totalSales;   // gross = net karena belum ada diskon di response
+  const totalDiscount = Number(stats.totalDiscount ?? 0);
+  const totalHpp = totalSales - grossProfit;            // HPP = revenue - profit
+  const marginPercent = totalSales > 0 ? (grossProfit / totalSales) * 100 : 0;
 
-  // Chart data
-  const chartData = (() => {
-    const map: Record<string, number> = {};
-    for (let i = days - 1; i >= 0; i--) {
-      const d = format(subDays(new Date(), i), 'dd/MM');
-      map[d] = 0;
-    }
-    transactions?.forEach(t => {
-      const d = format(new Date(t.date), 'dd/MM');
-      if (map[d] !== undefined) map[d] += t.total;
-    });
-    return Object.entries(map).map(([date, sales]) => ({ date, sales }));
-  })();
+  // ── Derived values dari expenseSummary ────────────────────────────────────
+  const totalExpenses = parseFloat(expenseSummary?.totalAmount ?? '0');
+  const netProfit = grossProfit - totalExpenses;
+  const netMarginPercent = totalSales > 0 ? (netProfit / totalSales) * 100 : 0;
 
-  // Top products
-  const productSales: Record<string, { name: string; qty: number; revenue: number; profit: number }> = {};
-  allItems.forEach(item => {
-    if (!productSales[item.productName]) productSales[item.productName] = { name: item.productName, qty: 0, revenue: 0, profit: 0 };
-    productSales[item.productName].qty += item.quantity;
-    productSales[item.productName].revenue += item.subtotal;
-    productSales[item.productName].profit += (item.price - item.hpp) * item.quantity - item.discountAmount;
-  });
-  const topProducts = Object.values(productSales).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+  // ── Expense breakdown per kategori (top 5) ────────────────────────────────
+  const topExpenseCategories = (expenseSummary?.byCategory ?? [])
+    .map((item: any) => ({
+      name: item.category?.name ?? 'Tanpa kategori',
+      icon: item.category?.icon ?? '📦',
+      color: item.category?.color ?? '#6B7280',
+      amount: parseFloat(item.totalAmount),
+    }))
+    .sort((a: any, b: any) => b.amount - a.amount)
+    .slice(0, 5);
+
+  // ── Chart data ────────────────────────────────────────────────────────────
+  // API mengembalikan chartData[].date sudah 'dd/MM' & field revenue (bukan sales)
+  const rawChartData = (report as any)?.chartData ?? report?.dailyStats ?? [];
+  const chartData = rawChartData.map((stat: any) => ({
+    date: stat.date,                                   // sudah 'dd/MM' dari backend
+    sales: Number(stat.revenue ?? stat.sales ?? 0),   // normalise field name
+  }));
+
+  // ── Top products ──────────────────────────────────────────────────────────
+  // API: { name, revenue, profit, quantity }  (bukan totalRevenue/totalProfit/totalQty)
+  const rawTopProducts = (report as any)?.topProducts ?? report?.topProducts ?? [];
+  const topProducts = rawTopProducts.map((p: any, idx: number) => ({
+    productId: p.productId ?? p.name ?? idx,          // key fallback jika tidak ada id
+    name: p.name,
+    totalRevenue: Number(p.totalRevenue ?? p.revenue ?? 0),
+    totalProfit: Number(p.totalProfit ?? p.profit ?? 0),
+    totalQty: Number(p.totalQty ?? p.quantity ?? 0),
+  }));
 
   const rp = (n: number) => `Rp ${n.toLocaleString('id-ID')}`;
 
+  // ── Loading state ─────────────────────────────────────────────────────────
+  if (isLoading) {
+    return (
+      <div className="px-4 pt-6 pb-20 space-y-5">
+        <h1 className="text-xl font-bold flex items-center gap-2">
+          <BarChart3 className="w-5 h-5 text-primary" />
+          Laporan
+        </h1>
+        <p className="text-xs text-muted-foreground text-center py-16">Memuat data...</p>
+      </div>
+    );
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="px-4 pt-6 pb-20 space-y-5">
       <h1 className="text-xl font-bold flex items-center gap-2">
@@ -137,7 +183,7 @@ export default function Laporan() {
           )}
           <div className="flex justify-between items-center text-sm border-t pt-2">
             <span className="font-medium">Penjualan Bersih</span>
-            <span className="font-bold">{rp(netSales)}</span>
+            <span className="font-bold">{rp(totalSales)}</span>
           </div>
           <div className="flex justify-between items-center text-sm text-destructive">
             <div className="flex items-center gap-2">
@@ -153,11 +199,74 @@ export default function Laporan() {
             </span>
           </div>
           <div className="flex justify-between items-center text-xs text-muted-foreground">
-            <span>Margin</span>
+            <span>Margin Kotor</span>
             <span className="font-semibold">{marginPercent.toFixed(1)}%</span>
+          </div>
+          {totalExpenses > 0 && (
+            <div className="flex justify-between items-center text-sm text-warning">
+              <div className="flex items-center gap-2">
+                <Wallet className="w-3.5 h-3.5" />
+                <span>Pengeluaran Operasional</span>
+              </div>
+              <span className="font-semibold">-{rp(totalExpenses)}</span>
+            </div>
+          )}
+          <div className="flex justify-between items-center text-base border-t pt-2">
+            <span className="font-bold">Laba Bersih</span>
+            <span className={`font-bold ${netProfit >= 0 ? 'text-success' : 'text-destructive'}`}>
+              {rp(netProfit)}
+            </span>
+          </div>
+          <div className="flex justify-between items-center text-xs text-muted-foreground">
+            <span>Margin Bersih</span>
+            <span className="font-semibold">{netMarginPercent.toFixed(1)}%</span>
           </div>
         </CardContent>
       </Card>
+
+      {/* Expense Breakdown */}
+      {topExpenseCategories.length > 0 && (
+        <Card className="border-0 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-1.5">
+              <Wallet className="w-4 h-4" />
+              Pengeluaran per Kategori
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {topExpenseCategories.map(cat => {
+                const percent = totalExpenses > 0 ? (cat.amount / totalExpenses) * 100 : 0;
+                return (
+                  <div key={cat.name}>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="w-6 h-6 rounded flex items-center justify-center text-sm"
+                          style={{ backgroundColor: cat.color + '20' }}
+                        >
+                          {cat.icon}
+                        </span>
+                        <span className="text-sm">{cat.name}</span>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs font-bold">{rp(cat.amount)}</p>
+                        <p className="text-[10px] text-muted-foreground">{percent.toFixed(0)}%</p>
+                      </div>
+                    </div>
+                    <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${percent}%`, backgroundColor: cat.color }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Chart */}
       <Card className="border-0 shadow-sm">
@@ -167,9 +276,17 @@ export default function Laporan() {
         <CardContent className="pb-4">
           <ResponsiveContainer width="100%" height={180}>
             <BarChart data={chartData}>
-              <XAxis dataKey="date" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
               <YAxis hide />
-              <Tooltip formatter={(v: number) => [`Rp ${v.toLocaleString('id-ID')}`, 'Penjualan']} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+              <Tooltip
+                formatter={(v: number) => [`Rp ${v.toLocaleString('id-ID')}`, 'Penjualan']}
+                contentStyle={{ fontSize: 12, borderRadius: 8 }}
+              />
               <Bar dataKey="sales" fill="hsl(25, 95%, 53%)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -186,18 +303,24 @@ export default function Laporan() {
         </CardHeader>
         <CardContent>
           {topProducts.length === 0 ? (
-            <p className="text-xs text-muted-foreground py-4 text-center">Belum ada data penjualan</p>
+            <p className="text-xs text-muted-foreground py-4 text-center">
+              Belum ada data penjualan
+            </p>
           ) : (
             <div className="space-y-2">
               {topProducts.map((p, i) => (
-                <div key={p.name} className="flex items-center justify-between">
+                <div key={p.productId} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center">{i + 1}</span>
+                    <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center">
+                      {i + 1}
+                    </span>
                     <span className="text-sm">{p.name}</span>
                   </div>
                   <div className="text-right">
-                    <p className="text-xs font-bold">{rp(p.revenue)}</p>
-                    <p className="text-[10px] text-muted-foreground">{p.qty} terjual · laba {rp(p.profit)}</p>
+                    <p className="text-xs font-bold">{rp(p.totalRevenue)}</p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {p.totalQty} terjual · laba {rp(p.totalProfit)}
+                    </p>
                   </div>
                 </div>
               ))}
