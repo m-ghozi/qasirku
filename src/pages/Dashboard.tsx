@@ -11,7 +11,6 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
 import { useDashboard } from '@/hooks/use-dashboard';
 import { useStoreSetting } from '@/hooks/use-store-setting';
-import BackupReminder, { shouldShowBackupReminder, exportBackupData } from '@/components/BackupReminder';
 import type { PermissionKey } from '@/lib/auth';
 
 export default function Dashboard() {
@@ -42,13 +41,6 @@ export default function Dashboard() {
   const lowStockProducts = summary?.lowStockProducts ?? [];
   const recentTransactions = summary?.recentTransactions ?? [];
 
-  // lastBackupAt & seenWhatsNewIds belum ada di StoreSetting API.
-  const lastBackupAt = (storeSettings as any)?.lastBackupAt ?? null;
-  const showBackup = !backupDismissed
-    && storeSettings != null
-    && shouldShowBackupReminder(lastBackupAt)
-    && can('manage_backup');
-
   // ── Quick actions ─────────────────────────────────────────────────────────────
   const quickActions: {
     to: string;
@@ -75,15 +67,6 @@ export default function Dashboard() {
           {storeSettings?.storeName || 'KasirGratisan'}
         </h1>
       </div>
-
-      {/* Backup Reminder */}
-      {showBackup && (
-        <BackupReminder
-          lastBackupAt={lastBackupAt}
-          onDismiss={() => setBackupDismissed(true)}
-          onBackup={exportBackupData}
-        />
-      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
