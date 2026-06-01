@@ -494,6 +494,23 @@ export default function Pengaturan() {
           </Card>
         </Link>
 
+        {can('manage_customers') && (
+          <Link to="/customers">
+            <Card className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow mb-2">
+              <CardContent className="p-3 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+                  <UsersIcon className="w-4 h-4" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold">Pelanggan</p>
+                  <p className="text-[10px] text-muted-foreground">Kelola data pelanggan & riwayat transaksi</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
+              </CardContent>
+            </Card>
+          </Link>
+        )}
+
         {can('manage_supplier') && (
           <Link to="/supplier">
             <Card className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow mb-2">

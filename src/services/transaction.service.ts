@@ -25,6 +25,7 @@ export interface TransactionItem {
 export interface Transaction {
   id: number;
   receiptNumber: string;
+  customerId: number;
   subtotal: number;
   discountType?: 'percentage' | 'nominal' | null;
   discountValue: number;
@@ -65,6 +66,7 @@ export interface CreateTransactionPayload {
   // subtotal, discountAmount, total, profit TIDAK perlu dikirim —
   // backend menghitung ulang semua nilai ini dari DB.
   subtotal?: number;
+  customerId?: number | null;
   discountType?: 'percentage' | 'nominal' | null;
   discountValue?: number;
   discountAmount?: number;

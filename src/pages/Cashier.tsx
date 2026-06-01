@@ -2,10 +2,11 @@ import { useState, useRef, useEffect } from 'react';
 import {
   Search, Plus, Minus, ShoppingCart, X, Tag, CreditCard,
   Check, ScanBarcode, Package as PackageIcon, ClipboardList,
-  Save, Pencil, User, Hash, Trash2, Barcode,
+  Save, Pencil, Hash, Trash2, Barcode, Users as UsersIcon,
 } from 'lucide-react';
 import Receipt from '@/components/Receipt';
 import BarcodeScanner from '@/components/BarcodeScanner';
+import CustomerPicker from '@/components/CustomerPicker';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,6 +26,7 @@ import LockedPage from '@/components/LockedPage';
 import { useProducts } from '@/hooks/use-products';
 import { useCategories } from '@/hooks/use-categories';
 import { usePaymentMethods } from '@/hooks/use-payment-methods';
+import { useCustomers } from '@/hooks/use-customers';
 import {
   useOpenBills,
   useCreateTransaction,
@@ -81,6 +83,7 @@ export default function Kasir() {
 
   // Customer / table info
   const [customerName, setCustomerName] = useState('');
+  const [customerId, setCustomerId] = useState<number | undefined>(undefined);
   const [tableNumber, setTableNumber] = useState('');
   const [remarks, setRemarks] = useState('');
 
@@ -95,18 +98,14 @@ export default function Kasir() {
   const scanInputRef = useRef<HTMLInputElement>(null);
 
   // ── Data Fetching ──────────────────────────────────────────────────────────
-  // usePaymentMethods() tanpa argumen → includeInactive default false
   const { data: products = [], isLoading: loadingProducts } = useProducts();
   const { data: categories = [] } = useCategories();
   const { data: paymentMethods = [] } = usePaymentMethods();
+  const { data: customers = [] } = useCustomers();
   const { data: openBills = [] } = useOpenBills();
-
-  // storeSettings masih dari Dexie (untuk Receipt component)
   const { data: storeSettings } = useStoreSetting();
 
   // ── Mutations ──────────────────────────────────────────────────────────────
-  // Toast sudah dihandle di dalam hook (onSuccess/onError),
-  // jadi di Cashier kita hanya perlu onSuccess untuk navigasi/state reset.
   const createTransaction = useCreateTransaction();
   const payHold = usePayHold();
   const cancelTransaction = useCancelTransaction();
@@ -115,7 +114,6 @@ export default function Kasir() {
     createTransaction.isPending || payHold.isPending || cancelTransaction.isPending;
 
   // ── Permission gate ────────────────────────────────────────────────────────
-  // Semua hook harus dipanggil dulu sebelum early return
   const allowed = can('create_transaction');
 
   // ── Derived ───────────────────────────────────────────────────────────────
@@ -137,6 +135,7 @@ export default function Kasir() {
     setPaymentMethodId('');
     setPaymentAmount('');
     setCustomerName('');
+    setCustomerId(undefined);
     setTableNumber('');
     setRemarks('');
     setIsQuickAdding(false);
@@ -230,7 +229,7 @@ export default function Kasir() {
     setItemDiscountTargetId(null);
   };
 
-  // ── Kalkulasi lokal (hanya untuk preview UI, tidak dikirim ke backend) ─────
+  // ── Kalkulasi ──────────────────────────────────────────────────────────────
   const getItemDiscountAmount = (item: CartItem): number => {
     const base = Number(item.product.price) * item.qty;
     if (item.discountType === 'percentage')
@@ -257,8 +256,6 @@ export default function Kasir() {
   const change = paidAmount - total;
 
   // ── Payload builder ────────────────────────────────────────────────────────
-  // Hanya kirim: productId, quantity, discountType, discountValue, notes.
-  // Backend menghitung sendiri price, hpp, totalPrice, profit.
   const buildItemsPayload = () =>
     cart.map(c => ({
       productId: c.product.id,
@@ -268,12 +265,15 @@ export default function Kasir() {
       notes: c.notes,
     }));
 
+  // ── Customer handler ───────────────────────────────────────────────────────
+  const handleCustomerChange = (name: string, id?: number) => {
+    setCustomerName(name);
+    setCustomerId(id);
+  };
+
   // ── Open Bill: Save ────────────────────────────────────────────────────────
   const saveOpenBill = () => {
-    if (cart.length === 0) {
-      toast.error('Keranjang kosong');
-      return;
-    }
+    if (cart.length === 0) { toast.error('Keranjang kosong'); return; }
 
     const basePayload = {
       items: buildItemsPayload(),
@@ -281,50 +281,36 @@ export default function Kasir() {
       discountValue: Number(txDiscountValue) || 0,
       status: 'open' as const,
       customerName: customerName.trim() || undefined,
+      customerId: customerId,
       tableNumber: tableNumber.trim() || undefined,
       remarks: remarks.trim() || undefined,
     };
 
     if (editingTxId) {
-      // Strategi: cancel lama → create baru (backend belum punya PUT open bill)
-      // Jalankan cancel dulu, lalu create di onSuccess agar atomik
       cancelTransaction.mutate(editingTxId, {
         onSuccess: () => {
           createTransaction.mutate(basePayload, {
-            onSuccess: () => {
-              doFullReset();
-              setCartOpen(false);
-            },
+            onSuccess: () => { doFullReset(); setCartOpen(false); },
           });
         },
       });
     } else {
       createTransaction.mutate(basePayload, {
-        onSuccess: () => {
-          doFullReset();
-          setCartOpen(false);
-        },
+        onSuccess: () => { doFullReset(); setCartOpen(false); },
       });
     }
   };
 
   // ── Open Bill: Load ────────────────────────────────────────────────────────
-  // Data items sudah di-include oleh backend di GET /transactions
   const loadOpenBill = (tx: Transaction) => {
     if (!tx.id) return;
     const items = tx.items ?? [];
-    if (items.length === 0) {
-      toast.error('Data item bill tidak tersedia.');
-      return;
-    }
+    if (items.length === 0) { toast.error('Data item bill tidak tersedia.'); return; }
 
     const cartItems: CartItem[] = [];
     for (const item of items) {
       const product = products.find(p => p.id === item.productId);
-      if (!product) {
-        toast.error(`Produk ID ${item.productId} tidak ditemukan`);
-        return;
-      }
+      if (!product) { toast.error(`Produk ID ${item.productId} tidak ditemukan`); return; }
       cartItems.push({
         product,
         qty: item.quantity,
@@ -339,6 +325,7 @@ export default function Kasir() {
     setTxDiscountType((tx.discountType as 'percentage' | 'nominal' | null) ?? null);
     setTxDiscountValue(tx.discountType ? String(tx.discountValue) : '');
     setCustomerName(tx.customerName || '');
+    setCustomerId(tx.customerId ?? undefined);
     setTableNumber(tx.tableNumber || '');
     setRemarks(tx.remarks || '');
     setOpenBillsOpen(false);
@@ -350,24 +337,17 @@ export default function Kasir() {
     if (!tx.id) return;
     cancelTransaction.mutate(tx.id, {
       onSuccess: () => {
-        // Toast sudah dihandle di hook — hanya perlu state reset
         toast.success(`Bill ${tx.receiptNumber} dibatalkan`);
         setCancelDialogOpen(false);
         setCancelTargetTx(null);
-        if (editingTxId === tx.id) {
-          doFullReset();
-          setCartOpen(false);
-        }
+        if (editingTxId === tx.id) { doFullReset(); setCartOpen(false); }
       },
     });
   };
 
   const handleCancelFromCart = () => {
     const tx = openBills.find(b => b.id === editingTxId);
-    if (tx) {
-      setCancelTargetTx(tx);
-      setCancelDialogOpen(true);
-    }
+    if (tx) { setCancelTargetTx(tx); setCancelDialogOpen(true); }
   };
 
   const handleCancelFromList = (bill: Transaction) => {
@@ -380,19 +360,13 @@ export default function Kasir() {
     if (!paymentMethodId || paidAmount < total) return;
 
     if (editingTxId) {
-      // Lunasi open bill
       payHold.mutate(
         {
           id: editingTxId,
-          payload: {
-            paymentMethodId: Number(paymentMethodId),
-            paymentAmount: paidAmount,
-            change,
-          },
+          payload: { paymentMethodId: Number(paymentMethodId), paymentAmount: paidAmount, change },
         },
         {
           onSuccess: tx => {
-            // tx sudah include items (service fetch ulang jika kosong)
             setLastTransaction(tx);
             setLastTxItems(tx.items ?? []);
             setReceiptOpen(true);
@@ -403,7 +377,6 @@ export default function Kasir() {
         }
       );
     } else {
-      // Transaksi baru
       createTransaction.mutate(
         {
           items: buildItemsPayload(),
@@ -414,6 +387,7 @@ export default function Kasir() {
           change,
           status: 'completed',
           customerName: customerName.trim() || undefined,
+          customerId: customerId,
           tableNumber: tableNumber.trim() || undefined,
           remarks: remarks.trim() || undefined,
         },
@@ -468,7 +442,24 @@ export default function Kasir() {
   const cartCount = cart.reduce((s, c) => s + c.qty, 0);
   const openBillsCount = openBills.length;
 
-  // ── Shared UI: Cart items ──────────────────────────────────────────────────
+  // ── Customer + Table input row (reused in cart panel & sheet) ─────────────
+  const renderCustomerRow = () => (
+    <div className="flex gap-2">
+      <CustomerPicker
+        customers={customers}
+        value={customerName}
+        customerId={customerId}
+        onChange={handleCustomerChange}
+        className="flex-1"
+      />
+      <div className="relative flex-[0.6]">
+        <Hash className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+        <Input placeholder="Meja" value={tableNumber} onChange={e => setTableNumber(e.target.value)} className="pl-8 h-9 text-xs" />
+      </div>
+    </div>
+  );
+
+  // ── Cart items ─────────────────────────────────────────────────────────────
   const renderCartItems = () =>
     cart.map(item => (
       <div key={item.product.id} className="bg-muted/50 p-3 rounded-xl space-y-1.5">
@@ -737,16 +728,7 @@ export default function Kasir() {
           ) : (
             <div className="flex flex-col flex-1 overflow-hidden">
               <div className="flex-1 overflow-y-auto space-y-3 p-4">{renderCartItems()}</div>
-              <div className="flex gap-2 px-4 mb-2">
-                <div className="relative flex-1">
-                  <User className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                  <Input placeholder="Nama pelanggan" value={customerName} onChange={e => setCustomerName(e.target.value)} className="pl-8 h-9 text-xs" />
-                </div>
-                <div className="relative flex-[0.6]">
-                  <Hash className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                  <Input placeholder="Meja" value={tableNumber} onChange={e => setTableNumber(e.target.value)} className="pl-8 h-9 text-xs" />
-                </div>
-              </div>
+              <div className="px-4 mb-2">{renderCustomerRow()}</div>
               {renderCartSummary(false)}
             </div>
           )}
@@ -774,16 +756,7 @@ export default function Kasir() {
             </SheetHeader>
             <div className="flex flex-col h-full mt-4">
               <div className="flex-1 overflow-y-auto space-y-3 pb-4">{renderCartItems()}</div>
-              <div className="flex gap-2 mb-2">
-                <div className="relative flex-1">
-                  <User className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                  <Input placeholder="Nama pelanggan" value={customerName} onChange={e => setCustomerName(e.target.value)} className="pl-8 h-9 text-xs" />
-                </div>
-                <div className="relative flex-[0.6]">
-                  <Hash className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                  <Input placeholder="Meja" value={tableNumber} onChange={e => setTableNumber(e.target.value)} className="pl-8 h-9 text-xs" />
-                </div>
-              </div>
+              <div className="mb-2">{renderCustomerRow()}</div>
               {renderCartSummary(true)}
             </div>
           </SheetContent>
@@ -818,7 +791,11 @@ export default function Kasir() {
                       <span className="text-sm font-bold text-primary">{rp(Number(bill.total))}</span>
                     </div>
                     <div className="flex gap-1.5 text-[10px] text-muted-foreground mb-2">
-                      {bill.customerName && <span>👤 {bill.customerName}</span>}
+                      {bill.customerName && (
+                        <span className="flex items-center gap-0.5">
+                          <UsersIcon className="w-2.5 h-2.5" /> {bill.customerName}
+                        </span>
+                      )}
                       {bill.tableNumber && <span>🪑 Meja {bill.tableNumber}</span>}
                       {bill.remarks && <span className="truncate max-w-[120px]">📝 {bill.remarks}</span>}
                     </div>
@@ -881,19 +858,24 @@ export default function Kasir() {
                 className="w-full text-xs text-muted-foreground hover:text-destructive transition-colors py-1"
               >Reset</button>
             </div>
+
+            {/* Customer picker in checkout */}
             <div className="space-y-2">
+              <CustomerPicker
+                customers={customers}
+                value={customerName}
+                customerId={customerId}
+                onChange={handleCustomerChange}
+              />
               <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <User className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                  <Input placeholder="Nama pelanggan" value={customerName} onChange={e => setCustomerName(e.target.value)} className="pl-8 h-10 text-sm" />
-                </div>
                 <div className="relative flex-[0.7]">
                   <Hash className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                   <Input placeholder="Meja" value={tableNumber} onChange={e => setTableNumber(e.target.value)} className="pl-8 h-10 text-sm" />
                 </div>
+                <Input placeholder="Catatan tambahan (opsional)" value={remarks} onChange={e => setRemarks(e.target.value)} className="h-10 flex-1" />
               </div>
-              <Input placeholder="Catatan tambahan (opsional)" value={remarks} onChange={e => setRemarks(e.target.value)} className="h-10" />
             </div>
+
             {paidAmount >= total && (
               <div className="flex justify-between items-center bg-success/10 p-3 rounded-xl">
                 <span className="text-sm font-medium">Kembalian</span>

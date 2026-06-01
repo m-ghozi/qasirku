@@ -14,6 +14,7 @@ export type PermissionKey =
   | 'manage_store_settings'
   | 'manage_expenses'
   | 'view_expenses'
+  | 'manage_customers'
 
 export interface AuthUser {
   id: number;
@@ -44,7 +45,8 @@ export const ALL_PERMISSIONS: PermissionKey[] = [
   'manage_backup',
   'manage_store_settings',
   'manage_expenses',
-  'view_expenses'
+  'view_expenses',
+  'manage_customers'
 ];
 
 export const PERMISSION_LABELS: Record<PermissionKey, { title: string; desc: string }> = {
@@ -59,6 +61,7 @@ export const PERMISSION_LABELS: Record<PermissionKey, { title: string; desc: str
   manage_store_settings: { title: 'Edit Info Toko & Tema', desc: 'Ubah nama toko, alamat, telepon, logo, warna tema' },
   manage_expenses: { title: 'Kelola Pengeluaran', desc: 'Tambah, edit, dan hapus data pengeluaran' },
   view_expenses: { title: 'Lihat Pengeluaran', desc: 'Akses laporan pengeluaran' },
+  manage_customers: { title: 'Kelola Pelanggan', desc: 'Tambah, edit, dan hapus data pelanggan' },
 };
 
 export const DEFAULT_STAFF_PERMISSIONS: PermissionKey[] = ['create_transaction'];
