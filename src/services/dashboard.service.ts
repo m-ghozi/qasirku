@@ -1,26 +1,50 @@
 import api from '@/lib/api';
 
-// ── Types ────────────────────────────────────────────────────────────────────
-// Sesuaikan dengan shape yang dikembalikan dashboardService.getSummary() di backend
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+export interface DashboardTransaction {
+  id: number;
+  receiptNumber: string;
+  subtotal: number;
+  discountType: 'percentage' | 'nominal' | null;
+  discountValue: number;
+  discountAmount: number;
+  total: number;
+  paymentMethodId: number;
+  paymentMethod: string;       // nama metode bayar, e.g. "Tunai"
+  paymentAmount: number;
+  change: number;
+  profit: number;
+  status: 'open' | 'completed';
+  date: string;                // ISO string
+  createdById: number;
+  createdBy: { name: string };
+  itemNames: string | null;    // "Kopi, Roti Bakar" — null jika tidak ada item
+}
+
+export interface DashboardStats {
+  todayRevenue: number;
+  todayProfit: number;
+  todaySalesCount: number;
+  openBillsCount: number;
+  productsCount: number;
+  todayExpenses: number;
+  todayExpenseCount: number;
+}
+
+export interface DashboardLowStockProduct {
+  id: number;
+  name: string;
+  sku: string;
+  stock: number;
+  unit: string;
+}
 
 export interface DashboardSummary {
-  todaySales: number;
-  todayProfit: number;
-  todayTransactionCount: number;
-  lowStockProducts: {
-    id: number;
-    name: string;
-    stock: number;
-    unit: string;
-  }[];
-  recentTransactions: {
-    id: number;
-    receiptNumber: string;
-    total: number;
-    date: string;
-    status: string;
-    paymentMethod: string;
-  }[];
+  todayTransactions: DashboardTransaction[];
+  stats: DashboardStats;
+  lowStockProducts: DashboardLowStockProduct[];
+  recentTransactions: DashboardTransaction[];
 }
 
 // ── Service ───────────────────────────────────────────────────────────────────

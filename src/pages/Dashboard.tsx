@@ -1,84 +1,85 @@
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type TransactionItemRecord } from '@/lib/db';
-import { useState } from 'react';
-import { ShoppingCart, Package, BarChart3, TrendingUp, AlertTriangle, Receipt, ChevronRight, ClipboardList } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import {
+  ShoppingCart, Package, BarChart3, TrendingUp,
+  AlertTriangle, Receipt, ChevronRight, ClipboardList, Wallet,
+} from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { id } from 'date-fns/locale';
 import { Button } from '@/components/ui/button';
-import BackupReminder, { shouldShowBackupReminder, exportBackupData } from '@/components/BackupReminder';
 import { useAuth } from '@/hooks/use-auth';
-import type { PermissionKey } from '@/lib/db';
+import { useDashboard } from '@/hooks/use-dashboard';
+import { useStoreSetting } from '@/hooks/use-store-setting';
+import BackupReminder, { shouldShowBackupReminder, exportBackupData } from '@/components/BackupReminder';
+import type { PermissionKey } from '@/lib/auth';
 
 export default function Dashboard() {
   const { can } = useAuth();
   const [backupDismissed, setBackupDismissed] = useState(false);
 
-  const storeSettings = useLiveQuery(() => db.storeSettings.toCollection().first());
+  // ── Remote data ──────────────────────────────────────────────────────────────
+  const { data: summary, isLoading: summaryLoading } = useDashboard();
+  const { data: storeSettings, isLoading: settingsLoading } = useStoreSetting();
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  useEffect(() => {
+    if (settingsLoading) return;
+    if (!storeSettings?.onboardingDone) return;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsLoading]);
 
-  const todayTransactions = useLiveQuery(async () => {
-    const all = await db.transactions.where('date').aboveOrEqual(today).toArray();
-    return all.filter(t => t.status !== 'open');
-  }, []);
+  // ── Loading guard ─────────────────────────────────────────────────────────────
+  if (settingsLoading && !storeSettings) return null;
 
-  const openBillsCount = useLiveQuery(async () => {
-    const open = await db.transactions.where('status').equals('open').toArray();
-    return open.length;
-  }, []);
+  // ── Derived values ────────────────────────────────────────────────────────────
+  const stats = summary?.stats;
+  const totalSales = stats?.todayRevenue ?? 0;
+  const totalProfit = stats?.todayProfit ?? 0;
+  const txCount = stats?.todaySalesCount ?? 0;
+  const openBillsCount = stats?.openBillsCount ?? 0;
+  const totalExpensesToday = stats?.todayExpenses ?? 0;
+  const expenseCount = stats?.todayExpenseCount ?? 0;
+  const lowStockProducts = summary?.lowStockProducts ?? [];
+  const recentTransactions = summary?.recentTransactions ?? [];
 
-  const lowStockProducts = useLiveQuery(() => db.products.filter(p => p.isDeleted === 0 && p.stock <= 5).toArray());
+  // lastBackupAt & seenWhatsNewIds belum ada di StoreSetting API.
+  const lastBackupAt = (storeSettings as any)?.lastBackupAt ?? null;
+  const showBackup = !backupDismissed
+    && storeSettings != null
+    && shouldShowBackupReminder(lastBackupAt)
+    && can('manage_backup');
 
-  const recentTransactions = useLiveQuery(() =>
-    db.transactions.orderBy('date').reverse().limit(5).toArray()
-  );
-
-  // Query items for recent transactions
-  const recentTxItems = useLiveQuery(async () => {
-    if (!recentTransactions || recentTransactions.length === 0) return {};
-    const txIds = recentTransactions.map(t => t.id!).filter(Boolean);
-    const items = await db.transactionItems.where('transactionId').anyOf(txIds).toArray();
-    const map: Record<number, TransactionItemRecord[]> = {};
-    for (const item of items) {
-      if (!map[item.transactionId]) map[item.transactionId] = [];
-      map[item.transactionId].push(item);
-    }
-    return map;
-  }, [recentTransactions]);
-
-  const paymentMethods = useLiveQuery(() => db.paymentMethods.toArray());
-
-  // Show onboarding if not done yet
-  if (storeSettings === undefined) return null; // loading
-
-  const totalSales = todayTransactions?.reduce((sum, t) => sum + t.total, 0) ?? 0;
-  const totalProfit = todayTransactions?.reduce((sum, t) => sum + t.profit, 0) ?? 0;
-  const txCount = todayTransactions?.length ?? 0;
-
-  const showBackup = !backupDismissed && storeSettings && shouldShowBackupReminder(storeSettings.lastBackupAt) && can('manage_backup');
-
-  const quickActions: { to: string; icon: typeof ShoppingCart; label: string; color: string; perm?: PermissionKey }[] = [
-    { to: '/cashier', icon: ShoppingCart, label: 'Kasir', color: 'bg-primary/10 text-primary', perm: 'create_transaction' },
-    { to: '/products', icon: Package, label: 'Produk', color: 'bg-accent/10 text-accent' },
-    { to: '/reports', icon: BarChart3, label: 'Laporan', color: 'bg-success/10 text-success', perm: 'view_reports' },
-  ];
+  // ── Quick actions ─────────────────────────────────────────────────────────────
+  const quickActions: {
+    to: string;
+    icon: typeof ShoppingCart;
+    label: string;
+    color: string;
+    perm?: PermissionKey;
+  }[] = [
+      { to: '/cashier', icon: ShoppingCart, label: 'Kasir', color: 'bg-primary/10 text-primary', perm: 'create_transaction' },
+      { to: '/products', icon: Package, label: 'Produk', color: 'bg-accent/10 text-accent' },
+      { to: '/reports', icon: BarChart3, label: 'Laporan', color: 'bg-success/10 text-success', perm: 'view_reports' },
+    ];
   const visibleActions = quickActions.filter((a) => !a.perm || can(a.perm));
 
   return (
     <div className="px-4 pt-6 space-y-5">
+
       {/* Header */}
       <div>
-        <p className="text-sm text-muted-foreground">{format(new Date(), 'EEEE, d MMMM yyyy', { locale: id })}</p>
-        <h1 className="text-2xl font-bold tracking-tight">{storeSettings?.storeName || 'KasirGratisan'}</h1>
+        <p className="text-sm text-muted-foreground">
+          {format(new Date(), 'EEEE, d MMMM yyyy', { locale: id })}
+        </p>
+        <h1 className="text-2xl font-bold tracking-tight">
+          {storeSettings?.storeName || 'KasirGratisan'}
+        </h1>
       </div>
 
       {/* Backup Reminder */}
       {showBackup && (
         <BackupReminder
-          lastBackupAt={storeSettings?.lastBackupAt ?? null}
+          lastBackupAt={lastBackupAt}
           onDismiss={() => setBackupDismissed(true)}
           onBackup={exportBackupData}
         />
@@ -89,10 +90,13 @@ export default function Dashboard() {
         <Card className="border-0 shadow-sm bg-primary text-primary-foreground">
           <CardContent className="p-4">
             <p className="text-xs opacity-80">Penjualan Hari Ini</p>
-            <p className="text-xl font-bold mt-1">Rp {totalSales.toLocaleString('id-ID')}</p>
+            <p className="text-xl font-bold mt-1">
+              Rp {totalSales.toLocaleString('id-ID')}
+            </p>
             <p className="text-xs opacity-70 mt-1">{txCount} transaksi</p>
           </CardContent>
         </Card>
+
         {can('view_reports') && (
           <Card className="border-0 shadow-sm">
             <CardContent className="p-4">
@@ -100,14 +104,33 @@ export default function Dashboard() {
                 <TrendingUp className="w-4 h-4" />
                 <p className="text-xs font-medium">Profit Hari Ini</p>
               </div>
-              <p className="text-xl font-bold mt-1">Rp {totalProfit.toLocaleString('id-ID')}</p>
+              <p className="text-xl font-bold mt-1">
+                Rp {totalProfit.toLocaleString('id-ID')}
+              </p>
             </CardContent>
           </Card>
+        )}
+
+        {(can('view_expenses') || can('manage_expenses')) && (
+          <Link to="/expenses" className="contents">
+            <Card className="border-0 shadow-sm hover:shadow-md transition-shadow cursor-pointer">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-1.5 text-warning">
+                  <Wallet className="w-4 h-4" />
+                  <p className="text-xs font-medium">Pengeluaran Hari Ini</p>
+                </div>
+                <p className="text-xl font-bold mt-1">
+                  Rp {totalExpensesToday.toLocaleString('id-ID')}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">{expenseCount} catatan</p>
+              </CardContent>
+            </Card>
+          </Link>
         )}
       </div>
 
       {/* Open Bills */}
-      {openBillsCount != null && openBillsCount > 0 && (
+      {openBillsCount > 0 && (
         <Link to="/cashier">
           <Card className="border-0 shadow-sm bg-warning/10 hover:shadow-md transition-shadow cursor-pointer mt-2">
             <CardContent className="p-4 flex items-center gap-4">
@@ -116,7 +139,9 @@ export default function Dashboard() {
               </div>
               <div className="flex-1">
                 <p className="text-sm font-semibold">Open Bills</p>
-                <p className="text-xs text-muted-foreground">{openBillsCount} bill menunggu pembayaran</p>
+                <p className="text-xs text-muted-foreground">
+                  {openBillsCount} bill menunggu pembayaran
+                </p>
               </div>
               <ChevronRight className="w-4 h-4 text-muted-foreground" />
             </CardContent>
@@ -128,7 +153,14 @@ export default function Dashboard() {
       {visibleActions.length > 0 && (
         <div>
           <h2 className="text-sm font-semibold text-muted-foreground mb-3">Akses Cepat</h2>
-          <div className={`grid gap-3 ${visibleActions.length === 1 ? 'grid-cols-1' : visibleActions.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+          <div
+            className={`grid gap-3 ${visibleActions.length === 1
+                ? 'grid-cols-1'
+                : visibleActions.length === 2
+                  ? 'grid-cols-2'
+                  : 'grid-cols-3'
+              }`}
+          >
             {visibleActions.map(({ to, icon: Icon, label, color }) => (
               <Link key={to} to={to}>
                 <Card className="border-0 shadow-sm hover:shadow-md transition-shadow">
@@ -146,7 +178,7 @@ export default function Dashboard() {
       )}
 
       {/* Recent Transactions */}
-      {recentTransactions && recentTransactions.length > 0 && (
+      {recentTransactions.length > 0 && (
         <div>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-muted-foreground flex items-center gap-1.5">
@@ -159,9 +191,10 @@ export default function Dashboard() {
               </Button>
             </Link>
           </div>
+
           <div className="space-y-2">
-            {recentTransactions.map(tx => (
-              <Link key={tx.id ?? tx.receiptNumber} to={`/history?txId=${tx.id ?? tx.receiptNumber}`}>
+            {recentTransactions.map((tx) => (
+              <Link key={tx.id} to={`/history?txId=${tx.id}`}>
                 <Card className="border-0 shadow-sm hover:shadow-md transition-shadow mb-2">
                   <CardContent className="p-3 flex items-center gap-3">
                     <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
@@ -169,12 +202,20 @@ export default function Dashboard() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
-                        <p className="text-xs text-muted-foreground truncate">{(recentTxItems?.[tx.id!] ?? []).map(i => i.productName).join(', ')}</p>
-                        <p className="text-[10px] text-muted-foreground shrink-0 ml-2">{format(new Date(tx.date), 'HH:mm')}</p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {tx.itemNames ?? `#${tx.receiptNumber}`}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground shrink-0 ml-2">
+                          {format(new Date(tx.date), 'HH:mm')}
+                        </p>
                       </div>
                       <div className="flex items-center justify-between mt-0.5">
-                        <p className="text-sm font-bold text-primary">Rp {tx.total.toLocaleString('id-ID')}</p>
-                        <p className="text-[10px] text-muted-foreground">{paymentMethods?.find(pm => pm.id === tx.paymentMethodId)?.name || 'Tunai'}</p>
+                        <p className="text-sm font-bold text-primary">
+                          Rp {tx.total.toLocaleString('id-ID')}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {tx.paymentMethod}
+                        </p>
                       </div>
                     </div>
                   </CardContent>
@@ -186,14 +227,14 @@ export default function Dashboard() {
       )}
 
       {/* Low Stock Alert */}
-      {lowStockProducts && lowStockProducts.length > 0 && (
+      {lowStockProducts.length > 0 && (
         <div>
           <h2 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-1.5">
             <AlertTriangle className="w-4 h-4 text-warning" />
             Stok Menipis
           </h2>
           <div className="space-y-2">
-            {lowStockProducts.slice(0, 5).map(product => (
+            {lowStockProducts.slice(0, 5).map((product) => (
               <Card key={product.id} className="border-0 shadow-sm">
                 <CardContent className="p-3 flex items-center justify-between">
                   <span className="text-sm font-medium">{product.name}</span>
@@ -206,6 +247,7 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
     </div>
   );
 }
