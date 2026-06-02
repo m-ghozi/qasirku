@@ -142,8 +142,8 @@ export default function StockReport() {
                 contentStyle={{ fontSize: 12, borderRadius: 8 }}
                 labelStyle={{ fontSize: 10 }}
               />
-              <Bar dataKey="stockIn" fill="hsl(142, 71%, 45%)" radius={[2, 2, 0, 0]} name="Masuk" />
-              <Bar dataKey="stockOut" fill="hsl(0, 84%, 60%)" radius={[2, 2, 0, 0]} name="Keluar" />
+              <Bar dataKey="stockIn" fill="hsl(var(--primary))" radius={[2, 2, 0, 0]} name="Masuk" />
+              <Bar dataKey="stockOut" fill="hsl(var(--destructive))" radius={[2, 2, 0, 0]} name="Keluar" />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>

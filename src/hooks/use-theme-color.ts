@@ -1,8 +1,8 @@
 import { useEffect } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '@/lib/db';
+import { useStoreSetting, useUpdateStoreSetting } from '@/hooks/use-store-setting';
 
-// Predefined theme color options with HSL values
+// ── Constants ─────────────────────────────────────────────────────────────────
+
 export const THEME_COLORS = [
   { name: 'Oranye', hue: '25', saturation: '95%', lightness: '53%' },
   { name: 'Biru', hue: '217', saturation: '91%', lightness: '60%' },
@@ -14,37 +14,49 @@ export const THEME_COLORS = [
   { name: 'Kuning', hue: '45', saturation: '93%', lightness: '47%' },
 ] as const;
 
-export function getThemeHSL(hue: string) {
+export type ThemeHue = typeof THEME_COLORS[number]['hue'];
+
+export const DEFAULT_HUE = '217';
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+export function getThemeHSL(hue: string): string {
   const preset = THEME_COLORS.find(c => c.hue === hue);
   if (preset) return `${preset.hue} ${preset.saturation} ${preset.lightness}`;
   return `${hue} 95% 53%`;
 }
 
-export function applyThemeColor(hue: string) {
+export function applyThemeColor(hue: string): void {
   const hsl = getThemeHSL(hue);
   document.documentElement.style.setProperty('--primary', hsl);
   document.documentElement.style.setProperty('--ring', hsl);
-  // Update meta theme-color for PWA
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', `hsl(${hsl})`);
 }
 
+// ── Hook ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Membaca themeColor dari store settings (API) dan mengapply ke DOM.
+ * Return: { hue, setHue, isPending }
+ */
 export function useThemeColor() {
-  const storeSettings = useLiveQuery(() => db.storeSettings.toCollection().first());
+  const { data: settings } = useStoreSetting();
+  const { mutate: updateSettings, isPending } = useUpdateStoreSetting();
 
+  const hue = settings?.themeColor ?? DEFAULT_HUE;
+
+  // Apply ke DOM setiap kali hue dari server berubah
   useEffect(() => {
-    if (storeSettings?.themeColor) {
-      applyThemeColor(storeSettings.themeColor);
-    }
-  }, [storeSettings?.themeColor]);
+    applyThemeColor(hue);
+  }, [hue]);
 
-  return storeSettings?.themeColor ?? '217';
-}
+  const setHue = (newHue: string) => {
+    // Optimistic: apply ke DOM langsung agar UI responsif
+    applyThemeColor(newHue);
+    // Persist ke backend
+    updateSettings({ themeColor: newHue });
+  };
 
-export async function setThemeColor(hue: string) {
-  const settings = await db.storeSettings.toCollection().first();
-  if (settings?.id) {
-    await db.storeSettings.update(settings.id, { themeColor: hue });
-  }
-  applyThemeColor(hue);
+  return { hue, setHue, isPending };
 }

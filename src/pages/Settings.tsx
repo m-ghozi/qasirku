@@ -9,7 +9,7 @@
  *  - Guard: can('manage_categories_payments') — sama dengan kategori lain
  */
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import {
   Settings,
   Store,
@@ -36,8 +36,11 @@ import {
   Star,
   EyeOff,
   Wallet,
+  Camera,
+  X
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { compressImage } from '@/lib/image-utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -79,6 +82,8 @@ import type { Category } from '@/services/category.service';
 import type { Unit } from '@/services/unit.service';
 import type { PaymentMethod, PaymentCategory } from '@/services/paymentMethod.service';
 import type { ExpenseCategory } from '@/services/expense.service';
+import ThemeColorPicker from '@/components/ThemeColorPicker';
+import { useThemeColor } from '@/hooks/use-theme-color';
 
 // ── Konstanta ─────────────────────────────────────────────────────────────────
 
@@ -88,36 +93,6 @@ const PAYMENT_CATEGORIES: { value: PaymentCategory; label: string; emoji: string
   { value: 'qris', label: 'QRIS', emoji: '📷' },
   { value: 'e-wallet', label: 'E-Wallet', emoji: '📱' },
 ];
-
-const THEME_COLORS = [
-  { name: 'Oranye', hue: '25', saturation: '95%', lightness: '53%' },
-  { name: 'Biru', hue: '217', saturation: '91%', lightness: '60%' },
-  { name: 'Hijau', hue: '142', saturation: '71%', lightness: '45%' },
-  { name: 'Ungu', hue: '262', saturation: '83%', lightness: '58%' },
-  { name: 'Merah', hue: '0', saturation: '84%', lightness: '60%' },
-  { name: 'Pink', hue: '330', saturation: '81%', lightness: '60%' },
-  { name: 'Teal', hue: '172', saturation: '66%', lightness: '50%' },
-  { name: 'Kuning', hue: '45', saturation: '93%', lightness: '47%' },
-] as const;
-
-function getThemeHSL(hue: string) {
-  const preset = THEME_COLORS.find(c => c.hue === hue);
-  if (preset) return `${preset.hue} ${preset.saturation} ${preset.lightness}`;
-  return `${hue} 95% 53%`;
-}
-
-function applyThemeColor(hue: string) {
-  const hsl = getThemeHSL(hue);
-  document.documentElement.style.setProperty('--primary', hsl);
-  document.documentElement.style.setProperty('--ring', hsl);
-  const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', `hsl(${hsl})`);
-  localStorage.setItem('themeColorHue', hue);
-}
-
-function getStoredThemeHue(): string {
-  return localStorage.getItem('themeColorHue') ?? '217';
-}
 
 const EXPENSE_EMOJI_OPTIONS = ['💡', '🏠', '👤', '🚚', '🧰', '📦', '💧', '📞', '🌐', '☕', '🧾', '💼'];
 
@@ -156,7 +131,7 @@ export default function Pengaturan() {
   const { data: users = [] } = useUsers();
 
   // ── Tema warna lokal ──────────────────────────────────────────────────────
-  const [themeHue, setThemeHue] = useState(getStoredThemeHue);
+  const { hue: themeHue, setHue: setThemeHue } = useThemeColor();
 
   // ── Dialog states ─────────────────────────────────────────────────────────
   const [installHelpOpen, setInstallHelpOpen] = useState(false);
@@ -168,6 +143,8 @@ export default function Pengaturan() {
   const [storeAddr, setStoreAddr] = useState('');
   const [storePhone, setStorePhone] = useState('');
   const [storeFooter, setStoreFooter] = useState('');
+  const [storeLogo, setStoreLogo] = useState<string | null | undefined>(undefined);
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   // Category
   const [catDialog, setCatDialog] = useState(false);
@@ -208,14 +185,31 @@ export default function Pengaturan() {
     setStoreAddr(storeSetting?.address ?? '');
     setStorePhone(storeSetting?.phone ?? '');
     setStoreFooter(storeSetting?.receiptFooter ?? '');
+    setStoreLogo(storeSetting?.logo);
     setStoreDialog(true);
   };
 
   const saveStore = () => {
     updateStoreSetting.mutate(
-      { storeName: storeName.trim(), address: storeAddr.trim(), phone: storePhone.trim(), receiptFooter: storeFooter.trim() },
+      { storeName: storeName.trim(), address: storeAddr.trim(), phone: storePhone.trim(), receiptFooter: storeFooter.trim(), logo: storeLogo, },
       { onSuccess: () => setStoreDialog(false) },
     );
+  };
+
+  const handleLogoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('File harus berupa gambar');
+      return;
+    }
+    try {
+      const compressed = await compressImage(file);
+      setStoreLogo(compressed);
+    } catch {
+      toast.error('Gagal memproses gambar');
+    }
+    if (logoInputRef.current) logoInputRef.current.value = '';
   };
 
   // ── Category handlers ─────────────────────────────────────────────────────
@@ -353,13 +347,6 @@ export default function Pengaturan() {
     });
   };
 
-  // ── Theme ─────────────────────────────────────────────────────────────────
-
-  const handleThemeChange = (hue: string) => {
-    setThemeHue(hue);
-    applyThemeColor(hue);
-  };
-
   const handleLogout = () => {
     logout();
     setLogoutOpen(false);
@@ -383,8 +370,12 @@ export default function Pengaturan() {
         onClick={() => can('manage_store_settings') && openStoreEdit()}
       >
         <CardContent className="p-4 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
-            <Store className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center overflow-hidden shrink-0">
+            {storeSetting?.logo ? (
+              <img src={storeSetting.logo} alt="Logo" className="w-full h-full object-cover" />
+            ) : (
+              <Store className="w-5 h-5" />
+            )}
           </div>
           <div className="flex-1">
             <p className="text-sm font-semibold">{storeSetting?.storeName || 'Toko Saya'}</p>
@@ -828,17 +819,7 @@ export default function Pengaturan() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {THEME_COLORS.map(tc => (
-                <button
-                  key={tc.hue}
-                  title={tc.name}
-                  onClick={() => handleThemeChange(tc.hue)}
-                  className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 ${themeHue === tc.hue ? 'border-foreground scale-110' : 'border-transparent'}`}
-                  style={{ backgroundColor: `hsl(${tc.hue} ${tc.saturation} ${tc.lightness})` }}
-                />
-              ))}
-            </div>
+            <ThemeColorPicker />
           </CardContent>
         </Card>
       )}
@@ -918,6 +899,52 @@ export default function Pengaturan() {
         <DialogContent className="max-w-[95vw] rounded-xl">
           <DialogHeader><DialogTitle>Info Toko</DialogTitle></DialogHeader>
           <div className="space-y-4 mt-2">
+            <div className="space-y-1.5">
+              <Label>Logo Toko</Label>
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-20 h-20 rounded-xl bg-muted border-2 border-dashed border-border flex items-center justify-center overflow-hidden cursor-pointer hover:border-primary/50 transition-colors"
+                  onClick={() => logoInputRef.current?.click()}
+                >
+                  {storeLogo ? (
+                    <img src={storeLogo} alt="Logo" className="w-full h-full object-cover" />
+                  ) : (
+                    <Camera className="w-6 h-6 text-muted-foreground/50" />
+                  )}
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs gap-1.5"
+                    onClick={() => logoInputRef.current?.click()}
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    {storeLogo ? 'Ganti Logo' : 'Pilih Logo'}
+                  </Button>
+                  {storeLogo && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 text-xs text-destructive gap-1.5"
+                      onClick={() => setStoreLogo(null)}
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      Hapus Logo
+                    </Button>
+                  )}
+                </div>
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleLogoSelect}
+                />
+              </div>
+            </div>
             <div className="space-y-1.5"><Label>Nama Toko</Label><Input value={storeName} onChange={e => setStoreName(e.target.value)} className="h-11" /></div>
             <div className="space-y-1.5"><Label>Alamat</Label><Input value={storeAddr} onChange={e => setStoreAddr(e.target.value)} className="h-11" /></div>
             <div className="space-y-1.5"><Label>Telepon</Label><Input value={storePhone} onChange={e => setStorePhone(e.target.value)} className="h-11" type="tel" /></div>

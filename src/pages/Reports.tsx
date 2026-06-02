@@ -287,7 +287,7 @@ export default function Laporan() {
                 formatter={(v: number) => [`Rp ${v.toLocaleString('id-ID')}`, 'Penjualan']}
                 contentStyle={{ fontSize: 12, borderRadius: 8 }}
               />
-              <Bar dataKey="sales" fill="hsl(25, 95%, 53%)" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="sales" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>

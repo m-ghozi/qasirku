@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/hooks/use-auth";
+import { useThemeColor } from '@/hooks/use-theme-color';
 import ErrorBoundary from "@/components/ErrorBoundary";
 import RequireAuth from "@/components/RequireAuth";
 import AppLayout from "./components/layout/AppLayout";
@@ -33,10 +34,16 @@ const queryClient = new QueryClient({
   },
 });
 
+function AppThemeSync() {
+  useThemeColor(); // cukup mount hook, efek apply otomatis
+  return null;
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
+        <AppThemeSync />
         <TooltipProvider>
           <Toaster />
           <Sonner />
