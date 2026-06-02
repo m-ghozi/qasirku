@@ -827,32 +827,9 @@ export default function Pengaturan() {
       {/* ── About ────────────────────────────────────────────────────────── */}
       <Card className="border-0 shadow-sm">
         <CardContent className="p-4 text-center space-y-2">
-          <p className="text-sm font-bold">KasirGratisan</p>
+          <p className="text-sm font-bold">Qasir</p>
           <p className="text-xs text-muted-foreground">POS Gratis untuk UMKM Indonesia 🇮🇩</p>
           <p className="text-[10px] text-muted-foreground">v2.0 • Data tersimpan di server</p>
-          <div className="flex flex-col gap-2 pt-2">
-            <a
-              href="https://kasirgratisan.fider.io"
-              target="_blank" rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2 w-full h-9 rounded-lg border border-border bg-muted/50 text-xs font-semibold text-foreground hover:bg-primary/5 hover:border-primary/30 hover:text-primary transition-colors"
-            >
-              💡 Request Fitur
-            </a>
-            <a
-              href="https://traktir.jipraks.com"
-              target="_blank" rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2 w-full h-9 rounded-lg border border-warning/30 bg-warning/5 text-xs font-semibold text-warning hover:bg-warning/10 transition-colors"
-            >
-              ☕ Traktir Kopi untuk Developer
-            </a>
-            <a
-              href="https://t.me/kasirgratisan"
-              target="_blank" rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2 w-full h-9 rounded-lg border border-sky-500/30 bg-sky-500/5 text-xs font-semibold text-sky-600 dark:text-sky-400 hover:bg-sky-500/10 transition-colors"
-            >
-              💬 Gabung Grup Telegram
-            </a>
-          </div>
         </CardContent>
       </Card>
 
