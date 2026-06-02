@@ -38,7 +38,7 @@ export function useThemeColor() {
     }
   }, [storeSettings?.themeColor]);
 
-  return storeSettings?.themeColor ?? '25';
+  return storeSettings?.themeColor ?? '217';
 }
 
 export async function setThemeColor(hue: string) {

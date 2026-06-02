@@ -116,7 +116,7 @@ function applyThemeColor(hue: string) {
 }
 
 function getStoredThemeHue(): string {
-  return localStorage.getItem('themeColorHue') ?? '25';
+  return localStorage.getItem('themeColorHue') ?? '217';
 }
 
 const EXPENSE_EMOJI_OPTIONS = ['💡', '🏠', '👤', '🚚', '🧰', '📦', '💧', '📞', '🌐', '☕', '🧾', '💼'];

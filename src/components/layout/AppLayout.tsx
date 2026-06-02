@@ -28,7 +28,7 @@ const THEME_PRESETS: Record<string, string> = {
 };
 
 function applyStoredTheme() {
-  const hue = localStorage.getItem('themeColorHue') ?? '25';
+  const hue = localStorage.getItem('themeColorHue') ?? '217';
   const hsl = THEME_PRESETS[hue] ?? `${hue} 95% 53%`;
   document.documentElement.style.setProperty('--primary', hsl);
   document.documentElement.style.setProperty('--ring', hsl);

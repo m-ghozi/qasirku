@@ -442,9 +442,9 @@ export default function Kasir() {
   const cartCount = cart.reduce((s, c) => s + c.qty, 0);
   const openBillsCount = openBills.length;
 
-  // ── Customer + Table input row (reused in cart panel & sheet) ─────────────
+  // ── Customer input row (reused in cart panel & sheet) ─────────────
   const renderCustomerRow = () => (
-    <div className="flex gap-2">
+    <div className="flex gap-2 w-full">
       <CustomerPicker
         customers={customers}
         value={customerName}
@@ -452,10 +452,6 @@ export default function Kasir() {
         onChange={handleCustomerChange}
         className="flex-1"
       />
-      <div className="relative flex-[0.6]">
-        <Hash className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-        <Input placeholder="Meja" value={tableNumber} onChange={e => setTableNumber(e.target.value)} className="pl-8 h-9 text-xs" />
-      </div>
     </div>
   );
 
@@ -867,13 +863,7 @@ export default function Kasir() {
                 customerId={customerId}
                 onChange={handleCustomerChange}
               />
-              <div className="flex gap-2">
-                <div className="relative flex-[0.7]">
-                  <Hash className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                  <Input placeholder="Meja" value={tableNumber} onChange={e => setTableNumber(e.target.value)} className="pl-8 h-10 text-sm" />
-                </div>
-                <Input placeholder="Catatan tambahan (opsional)" value={remarks} onChange={e => setRemarks(e.target.value)} className="h-10 flex-1" />
-              </div>
+              <Input placeholder="Catatan tambahan (opsional)" value={remarks} onChange={e => setRemarks(e.target.value)} className="h-10 flex-1" />
             </div>
 
             {paidAmount >= total && (
