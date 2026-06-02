@@ -16,10 +16,14 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
+    if (err.response?.status === 401 || err.response?.status === 403) {
+      // Avoid redirect loop on login page
+      if (window.location.pathname === '/login') {
+        return Promise.reject(err);
+      }
       localStorage.removeItem('auth_token');
-      // Reload agar AuthProvider reset state & tampilkan halaman login
-      window.location.reload();
+      // Redirect to login page
+      window.location.href = '/login';
     }
     return Promise.reject(err);
   }
