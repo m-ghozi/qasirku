@@ -14,9 +14,8 @@ export const THEME_COLORS = [
   { name: 'Kuning', hue: '45', saturation: '93%', lightness: '47%' },
 ] as const;
 
-export type ThemeHue = typeof THEME_COLORS[number]['hue'];
-
 export const DEFAULT_HUE = '217';
+const CACHE_KEY = 'themeColorHue';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -34,27 +33,29 @@ export function applyThemeColor(hue: string): void {
   if (meta) meta.setAttribute('content', `hsl(${hsl})`);
 }
 
+// Apply dari localStorage SEBELUM React render — dipanggil 1x saat module load
+// sehingga tidak ada flash warna merah saat refresh.
+const cachedHue = localStorage.getItem(CACHE_KEY);
+if (cachedHue) applyThemeColor(cachedHue);
+
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
-/**
- * Membaca themeColor dari store settings (API) dan mengapply ke DOM.
- * Return: { hue, setHue, isPending }
- */
 export function useThemeColor() {
   const { data: settings } = useStoreSetting();
   const { mutate: updateSettings, isPending } = useUpdateStoreSetting();
 
   const hue = settings?.themeColor ?? DEFAULT_HUE;
 
-  // Apply ke DOM setiap kali hue dari server berubah
+  // Sync DOM + cache setiap kali hue dari server berubah
   useEffect(() => {
     applyThemeColor(hue);
+    localStorage.setItem(CACHE_KEY, hue);
   }, [hue]);
 
   const setHue = (newHue: string) => {
-    // Optimistic: apply ke DOM langsung agar UI responsif
+    // Optimistic: apply + cache langsung
     applyThemeColor(newHue);
-    // Persist ke backend
+    localStorage.setItem(CACHE_KEY, newHue);
     updateSettings({ themeColor: newHue });
   };
 
