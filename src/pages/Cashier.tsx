@@ -627,12 +627,18 @@ export default function Kasir() {
               Kasir
               {editingTxId && <Badge variant="secondary" className="text-[10px] font-normal">Editing Bill</Badge>}
             </h1>
-            <Button variant="ghost" size="sm" className="h-9 gap-1.5 text-xs relative" onClick={() => setOpenBillsOpen(true)}>
-              <ClipboardList className="w-4 h-4" />Open Bill
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-9 gap-1.5 text-xs"
+              onClick={() => setOpenBillsOpen(true)}
+            >
+              <ClipboardList className="w-4 h-4" />
+              Open Bill
               {openBillsCount > 0 && (
-                <Badge className="absolute -top-1 -right-1 h-4 min-w-4 text-[9px] px-1 bg-destructive text-destructive-foreground">
+                <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-destructive text-destructive-foreground text-[9px] font-bold">
                   {openBillsCount}
-                </Badge>
+                </span>
               )}
             </Button>
           </div>
