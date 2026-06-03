@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/use-auth';
 import { cn } from '@/lib/utils';
@@ -59,17 +59,28 @@ const PIN_MAX = 6;
 
 export default function Login() {
   const { login } = useAuth();
-  const navigate  = useNavigate();
-  const location  = useLocation();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   // Redirect ke halaman yang dicoba sebelum login, default ke /
   const from = (location.state as any)?.from?.pathname ?? '/';
 
   const [username, setUsername] = useState('');
-  const [pin, setPin]           = useState('');
-  const [step, setStep]         = useState<'username' | 'pin'>('username');
-  const [error, setError]       = useState('');
-  const [loading, setLoading]   = useState(false);
+  const [pin, setPin] = useState('');
+  const [step, setStep] = useState<'username' | 'pin'>('username');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+
+  useEffect(() => {
+    if (step !== 'pin') return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key >= '0' && e.key <= '9') pressKey(e.key);
+      else if (e.key === 'Backspace') backspace();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [step, pin, loading]);
 
   // ── Username submit ───────────────────────────────────────────────────────
 
@@ -120,10 +131,8 @@ export default function Login() {
         <div className="w-full max-w-sm space-y-8">
           {/* Logo / judul */}
           <div className="text-center space-y-1">
-            <div className="w-14 h-14 rounded-2xl bg-primary flex items-center justify-center mx-auto mb-4">
-              <span className="text-2xl">🧾</span>
-            </div>
-            <h1 className="text-2xl font-bold tracking-tight">KasirGratisan</h1>
+            <img src="/qasir-icon.png" alt="Qasir" className="w-32 h-32 mx-auto mb-4 object-contain" />
+            <h1 className="text-2xl font-bold tracking-tight">Qasir</h1>
             <p className="text-sm text-muted-foreground">Masuk untuk melanjutkan</p>
           </div>
 
@@ -172,9 +181,7 @@ export default function Login() {
       <div className="w-full max-w-xs space-y-2">
         {/* Header */}
         <div className="text-center space-y-1 mb-2">
-          <div className="w-14 h-14 rounded-2xl bg-primary flex items-center justify-center mx-auto mb-4">
-            <span className="text-2xl">🧾</span>
-          </div>
+          <img src="/qasir-icon.png" alt="Qasir" className="w-24 h-24 mx-auto mb-4 object-contain" />
           <h1 className="text-lg font-bold">Halo, <span className="text-primary">@{username}</span></h1>
           <p className="text-sm text-muted-foreground">Masukkan PIN kamu</p>
         </div>
@@ -193,7 +200,7 @@ export default function Login() {
 
         {/* Numpad */}
         <div className="grid grid-cols-3 gap-3 mt-4">
-          {['1','2','3','4','5','6','7','8','9'].map((d) => (
+          {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
             <NumKey key={d} onClick={() => pressKey(d)}>
               {d}
             </NumKey>
