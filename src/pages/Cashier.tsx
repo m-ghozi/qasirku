@@ -812,72 +812,99 @@ export default function Kasir() {
 
       {/* Checkout Dialog */}
       <Dialog open={checkoutOpen} onOpenChange={setCheckoutOpen}>
-        <DialogContent className="max-w-[95vw] rounded-xl">
-          <DialogHeader><DialogTitle>Pembayaran</DialogTitle></DialogHeader>
-          <div className="space-y-4 mt-2">
-            <div className="text-center py-3 bg-primary/5 rounded-xl">
-              <p className="text-sm text-muted-foreground">Total Bayar</p>
-              <p className="text-3xl font-bold text-primary">{rp(total)}</p>
-            </div>
-            <div className="space-y-1.5">
-              <p className="text-sm font-medium">Metode Pembayaran</p>
-              <div className="grid grid-cols-3 gap-2">
-                {paymentMethods.map(pm => (
-                  <button key={pm.id} onClick={() => setPaymentMethodId(pm.id.toString())}
-                    className={cn('p-3 rounded-xl text-xs font-semibold border-2 transition-colors',
-                      paymentMethodId === pm.id.toString() ? 'border-primary bg-primary/5 text-primary' : 'border-muted bg-muted/50 text-muted-foreground'
-                    )}
-                  >{pm.name}</button>
-                ))}
+        <DialogContent className="max-w-[95vw] sm:max-w-5xl rounded-xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-xl">Pembayaran</DialogTitle>
+          </DialogHeader>
+          <div className="mt-2 flex flex-col sm:flex-row gap-4">
+
+            {/* Kolom kiri — total, metode, nominal */}
+            <div className="flex-1 space-y-2 sm:space-y-3">
+              <div className="text-center py-2 sm:py-3 bg-primary/5 rounded-xl">
+                <p className="text-xs sm:text-sm text-muted-foreground">Total Bayar</p>
+                <p className="text-2xl sm:text-4xl font-bold text-primary">{rp(total)}</p>
               </div>
-            </div>
-            <div className="space-y-1.5">
-              <p className="text-sm font-medium">Jumlah Bayar</p>
-              <div className="h-12 flex items-center justify-center rounded-md border border-input bg-background text-lg font-bold text-center px-3">
-                {paidAmount > 0 ? `Rp ${paidAmount.toLocaleString('id-ID')}` : 'Rp 0'}
+
+              <div className="space-y-1">
+                <p className="text-sm sm:text-base font-semibold">Metode Pembayaran</p>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {paymentMethods?.map(pm => (
+                    <button key={pm.id} onClick={() => setPaymentMethodId(pm.id!.toString())}
+                      className={cn('p-2 sm:p-3 rounded-xl text-xs sm:text-sm font-semibold border-2 transition-colors',
+                        paymentMethodId === pm.id!.toString()
+                          ? 'border-primary bg-primary/5 text-primary'
+                          : 'border-muted bg-muted/50 text-muted-foreground'
+                      )}
+                    >{pm.name}</button>
+                  ))}
+                </div>
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {[1000, 2000, 5000, 10000, 20000, 50000, 100000].map(nom => (
-                  <button key={nom}
-                    onClick={() => {
-                      if (!isQuickAdding) { setPaymentAmount(String(nom)); setIsQuickAdding(true); }
-                      else { setPaymentAmount(prev => String((Number(prev) || 0) + nom)); }
-                    }}
-                    className="flex-1 min-w-[calc(25%-6px)] h-9 rounded-lg border border-border bg-muted/50 text-xs font-semibold hover:bg-primary/10 hover:border-primary hover:text-primary active:scale-95 transition-all"
-                  >{nom >= 1000 ? `${nom / 1000}K` : nom}</button>
-                ))}
-                <button onClick={() => { setPaymentAmount(total.toString()); setIsQuickAdding(false); }}
-                  className="flex-1 min-w-[calc(25%-6px)] h-9 rounded-lg border border-primary/30 bg-primary/5 text-xs font-semibold text-primary hover:bg-primary/10 active:scale-95 transition-all"
-                >Uang Pas</button>
+
+              <div className="space-y-1">
+                <p className="text-sm sm:text-base font-semibold">Jumlah Bayar</p>
+                <div className="h-10 sm:h-14 flex items-center justify-center rounded-md border border-input bg-background text-lg sm:text-2xl font-bold text-center px-3">
+                  {paidAmount > 0 ? `Rp ${paidAmount.toLocaleString('id-ID')}` : 'Rp 0'}
+                </div>
+                <div className="grid grid-cols-4 gap-1">
+                  {[1000, 2000, 5000, 10000, 20000, 50000, 100000].map(nom => (
+                    <button key={nom}
+                      onClick={() => {
+                        if (!isQuickAdding) { setPaymentAmount(String(nom)); setIsQuickAdding(true); }
+                        else { setPaymentAmount(prev => String((Number(prev) || 0) + nom)); }
+                      }}
+                      className="h-8 sm:h-10 rounded-lg border border-border bg-muted/50 text-xs sm:text-sm font-semibold text-foreground hover:bg-primary/10 hover:border-primary hover:text-primary active:scale-95 transition-all"
+                    >{nom >= 1000 ? `${nom / 1000}K` : nom}</button>
+                  ))}
+                  <button onClick={() => { setPaymentAmount(total.toString()); setIsQuickAdding(false); }}
+                    className="h-8 sm:h-10 rounded-lg border border-primary/30 bg-primary/5 text-xs sm:text-sm font-semibold text-primary hover:bg-primary/10 active:scale-95 transition-all"
+                  >Pas</button>
+                </div>
+                <button onClick={() => { setPaymentAmount('0'); setIsQuickAdding(false); }}
+                  className="w-full text-xs sm:text-sm text-muted-foreground hover:text-destructive transition-colors py-0.5"
+                >Reset</button>
               </div>
-              <button onClick={() => { setPaymentAmount('0'); setIsQuickAdding(false); }}
-                className="w-full text-xs text-muted-foreground hover:text-destructive transition-colors py-1"
-              >Reset</button>
             </div>
 
-            {/* Customer picker in checkout */}
-            <div className="space-y-2">
-              <CustomerPicker
-                customers={customers}
-                value={customerName}
-                customerId={customerId}
-                onChange={handleCustomerChange}
-              />
-              <Input placeholder="Catatan tambahan (opsional)" value={remarks} onChange={e => setRemarks(e.target.value)} className="h-10 flex-1" />
+            {/* Kolom kanan — pelanggan, kembalian, konfirmasi */}
+            <div className="sm:w-72 flex flex-col gap-2 sm:gap-3">
+              <div className="space-y-1.5">
+                <p className="text-sm sm:text-base font-semibold">Info Pelanggan</p>
+                <CustomerPicker
+                  customers={customers ?? []}
+                  value={customerName}
+                  customerId={customerId}
+                  onChange={(name, id) => { setCustomerName(name); setCustomerId(id); }}
+                  className="[&_input]:h-9 [&_input]:text-xs sm:[&_input]:h-11 sm:[&_input]:text-sm"
+                />
+                <Input
+                  placeholder="Catatan tambahan (opsional)"
+                  value={remarks}
+                  onChange={e => setRemarks(e.target.value)}
+                  className="h-9 sm:h-11 text-xs sm:text-sm"
+                />
+              </div>
+
+              <div className="flex-1" />
+
+              {paidAmount >= total && (
+                <div className="flex justify-between items-center bg-success/10 px-3 py-2 sm:p-4 rounded-xl">
+                  <span className="text-sm sm:text-base font-semibold">Kembalian</span>
+                  <span className="text-lg sm:text-2xl font-bold text-success">
+                    Rp {change.toLocaleString('id-ID')}
+                  </span>
+                </div>
+              )}
+
+              <Button
+                className="w-full h-11 sm:h-14 text-sm sm:text-base font-semibold"
+                onClick={handleCheckout}
+                disabled={!paymentMethodId || paidAmount < total}
+              >
+                <Check className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
+                Konfirmasi Transaksi
+              </Button>
             </div>
 
-            {paidAmount >= total && (
-              <div className="flex justify-between items-center bg-success/10 p-3 rounded-xl">
-                <span className="text-sm font-medium">Kembalian</span>
-                <span className="text-lg font-bold text-success">Rp {change.toLocaleString('id-ID')}</span>
-              </div>
-            )}
-            <Button className="w-full h-12 text-base font-semibold" onClick={handleCheckout}
-              disabled={!paymentMethodId || paidAmount < total || isMutating}
-            >
-              <Check className="w-5 h-5 mr-2" />
-              {payHold.isPending || createTransaction.isPending ? 'Memproses...' : 'Konfirmasi Transaksi'}
-            </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -986,21 +1013,23 @@ export default function Kasir() {
       </Dialog>
 
       {/* Receipt Dialog */}
-      {lastTransaction && (
-        <Receipt
-          open={receiptOpen}
-          onClose={() => setReceiptOpen(false)}
-          transaction={lastTransaction}
-          items={lastTxItems}
-          storeSettings={storeSettings}
-          paymentMethodName={
-            lastTransaction.paymentMethod?.name ??
-            paymentMethods.find(pm => pm.id === lastTransaction.paymentMethodId)?.name ??
-            '-'
-          }
-          cashierName={lastTransaction.createdBy?.name}
-        />
-      )}
+      {
+        lastTransaction && (
+          <Receipt
+            open={receiptOpen}
+            onClose={() => setReceiptOpen(false)}
+            transaction={lastTransaction}
+            items={lastTxItems}
+            storeSettings={storeSettings}
+            paymentMethodName={
+              lastTransaction.paymentMethod?.name ??
+              paymentMethods.find(pm => pm.id === lastTransaction.paymentMethodId)?.name ??
+              '-'
+            }
+            cashierName={lastTransaction.createdBy?.name}
+          />
+        )
+      }
 
       <BarcodeScanner open={scannerOpen} onClose={() => setScannerOpen(false)} onScan={handleScan} />
 
@@ -1020,6 +1049,6 @@ export default function Kasir() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </div >
   );
 }
