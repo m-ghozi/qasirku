@@ -38,19 +38,37 @@ export default function StockReport() {
 
     const map: Record<string, { stockIn: number; stockOut: number }> = {};
 
+    const toDateKey = (iso: string) => iso.slice(0, 10);
+
+    const formatLabel = (key: string) => {
+      const [, month, day] = key.split('-');
+      return `${day}/${month}`;
+    };
+
+    // Pre-fill semua hari sesuai periode
+    const days = parseInt(period);
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      map[key] = { stockIn: 0, stockOut: 0 };
+    }
+
     report.chart.stockIn.forEach(({ date, quantity }) => {
-      if (!map[date]) map[date] = { stockIn: 0, stockOut: 0 };
-      map[date].stockIn += quantity;
+      const key = toDateKey(date);
+      if (!map[key]) map[key] = { stockIn: 0, stockOut: 0 };
+      map[key].stockIn += quantity;
     });
 
     report.chart.stockOut.forEach(({ date, quantity }) => {
-      if (!map[date]) map[date] = { stockIn: 0, stockOut: 0 };
-      map[date].stockOut += quantity;
+      const key = toDateKey(date);
+      if (!map[key]) map[key] = { stockIn: 0, stockOut: 0 };
+      map[key].stockOut += quantity;
     });
 
     return Object.entries(map)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, data]) => ({ date, ...data }));
+      .map(([key, data]) => ({ date: formatLabel(key), ...data }));
   })();
 
   // ── Helpers ───────────────────────────────────────────────────────────────

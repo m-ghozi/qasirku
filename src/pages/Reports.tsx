@@ -1,77 +1,71 @@
-/**
- * Reports.tsx — MIGRATED (API hooks)
- *
- * API response shape (actual):
- *  report.data = {
- *    stats: { totalRevenue, totalProfit, totalSalesCount },
- *    chartData: [{ date: 'dd/MM', revenue, transactions }],
- *    topProducts: [{ name, revenue, profit, quantity }],
- *  }
- *
- * Field mapping (API → komponen):
- *  stats.totalRevenue      → totalSales (nilai yang sudah dibayar customer)
- *  stats.totalProfit       → totalProfit / grossProfit
- *  stats.totalSalesCount   → txCount
- *  chartData[].revenue     → sales (untuk bar chart)
- *  chartData[].date        → sudah dalam format 'dd/MM', tidak perlu re-format
- *  topProducts[].revenue   → totalRevenue
- *  topProducts[].profit    → totalProfit
- *  topProducts[].quantity  → totalQty
- */
-
 import { useState } from 'react';
+import { format } from 'date-fns';
 import {
   BarChart3, TrendingUp, ShoppingCart, Package,
-  DollarSign, ArrowDown, ArrowUp, Minus, Wallet,
+  DollarSign, ArrowDown, ArrowUp, Minus, Wallet, CreditCard,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { useAuth } from '@/hooks/use-auth';
 import LockedPage from '@/components/LockedPage';
-import { useReport } from '@/hooks/use-report';
+import { useReport, useDailyReport } from '@/hooks/use-report';
 import { useExpenseSummary } from '@/hooks/use-expenses';
 import type { RangePreset } from '@/services/expense.service';
 
 export default function Laporan() {
   const { can } = useAuth();
-  const [period, setPeriod] = useState<'7' | '30'>('7');
-  const days = Number(period) as 7 | 30;
+  const [period, setPeriod] = useState<'daily' | '7' | '30'>('7');
+  const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [includeExpenses, setIncludeExpenses] = useState(true);
 
-  // ── API hooks (selalu dipanggil sebelum permission gate) ─────────────────
-  const { data: report, isLoading: reportLoading } = useReport(days);
-  const expenseRange = period as RangePreset;
+  const isDaily = period === 'daily';
+  const days = isDaily ? null : (Number(period) as 7 | 30);
+
+  // ── Hooks (selalu dipanggil sebelum permission gate) ──────────────────────
+  const { data: report, isLoading: reportLoading } =
+    useReport(days ?? 7);
+
+  const { data: dailyReport, isLoading: dailyLoading } =
+    useDailyReport(isDaily ? selectedDate : '');
+
+  const expenseRange = isDaily ? 'today' : (period as RangePreset);
   const { data: expenseSummary, isLoading: expenseLoading } = useExpenseSummary({
     range: expenseRange,
+    ...(isDaily ? { date: selectedDate } : {}),
   });
 
-  // ── Permission gate ───────────────────────────────────────────────────────
   if (!can('view_reports')) {
     return <LockedPage title="Laporan" permissionLabel="Lihat Laporan & Profit" />;
   }
 
-  const isLoading = reportLoading || expenseLoading;
+  const isLoading = isDaily ? dailyLoading : (reportLoading || expenseLoading);
 
-  // ── Derived values dari report.data.stats ────────────────────────────────
-  // API: { stats: { totalRevenue, totalProfit, totalSalesCount }, chartData, topProducts }
-  const stats = (report as any)?.stats ?? report ?? {};
-  const totalSales = Number(stats.totalRevenue ?? 0);   // pendapatan = harga jual
-  const grossProfit = Number(stats.totalProfit ?? 0);   // profit setelah HPP
-  const totalProfit = grossProfit;                          // alias untuk summary card
-  const txCount = Number(stats.totalSalesCount ?? stats.totalTransactions ?? 0);
+  // ── Derived values ─────────────────────────────────────────────────────────
+  const stats = isDaily ? dailyReport?.stats : ((report as any)?.stats ?? report ?? {});
 
-  // Field-field yang belum ada di endpoint ini → tampil 0 (tidak merusak UI)
-  const totalRevenue = totalSales;   // gross = net karena belum ada diskon di response
-  const totalDiscount = Number(stats.totalDiscount ?? 0);
-  const totalHpp = totalSales - grossProfit;            // HPP = revenue - profit
+  const totalSales = Number(stats?.totalRevenue ?? 0);
+  const grossProfit = Number(stats?.totalProfit ?? 0);
+  const txCount = Number(stats?.totalSalesCount ?? 0);
+  const avgTx = Number(stats?.avgTransaction ?? (txCount > 0 ? totalSales / txCount : 0));
+
+  const totalRevenue = totalSales;
+  const totalDiscount = Number((report as any)?.stats?.totalDiscount ?? 0);
+  const totalHpp = totalSales - grossProfit;
   const marginPercent = totalSales > 0 ? (grossProfit / totalSales) * 100 : 0;
 
-  // ── Derived values dari expenseSummary ────────────────────────────────────
   const totalExpenses = parseFloat(expenseSummary?.totalAmount ?? '0');
-  const netProfit = grossProfit - totalExpenses;
+  const appliedExpenses = includeExpenses ? totalExpenses : 0;
+  const netProfit = grossProfit - appliedExpenses;
   const netMarginPercent = totalSales > 0 ? (netProfit / totalSales) * 100 : 0;
 
-  // ── Expense breakdown per kategori (top 5) ────────────────────────────────
+  // Payment breakdown (harian saja)
+  const paymentBreakdown = dailyReport?.paymentBreakdown ?? [];
+
+  // Expense categories
   const topExpenseCategories = (expenseSummary?.byCategory ?? [])
     .map((item: any) => ({
       name: item.category?.name ?? 'Tanpa kategori',
@@ -82,19 +76,20 @@ export default function Laporan() {
     .sort((a: any, b: any) => b.amount - a.amount)
     .slice(0, 5);
 
-  // ── Chart data ────────────────────────────────────────────────────────────
-  // API mengembalikan chartData[].date sudah 'dd/MM' & field revenue (bukan sales)
-  const rawChartData = (report as any)?.chartData ?? report?.dailyStats ?? [];
+  // Chart data (hanya untuk periode 7/30)
+  const rawChartData = (report as any)?.chartData ?? [];
   const chartData = rawChartData.map((stat: any) => ({
-    date: stat.date,                                   // sudah 'dd/MM' dari backend
-    sales: Number(stat.revenue ?? stat.sales ?? 0),   // normalise field name
+    date: stat.date,
+    sales: Number(stat.revenue ?? stat.sales ?? 0),
   }));
 
-  // ── Top products ──────────────────────────────────────────────────────────
-  // API: { name, revenue, profit, quantity }  (bukan totalRevenue/totalProfit/totalQty)
-  const rawTopProducts = (report as any)?.topProducts ?? report?.topProducts ?? [];
+  // Top products
+  const rawTopProducts = isDaily
+    ? (dailyReport?.topProducts ?? [])
+    : ((report as any)?.topProducts ?? []);
+
   const topProducts = rawTopProducts.map((p: any, idx: number) => ({
-    productId: p.productId ?? p.name ?? idx,          // key fallback jika tidak ada id
+    key: p.productId ?? p.name ?? idx,
     name: p.name,
     totalRevenue: Number(p.totalRevenue ?? p.revenue ?? 0),
     totalProfit: Number(p.totalProfit ?? p.profit ?? 0),
@@ -103,7 +98,6 @@ export default function Laporan() {
 
   const rp = (n: number) => `Rp ${n.toLocaleString('id-ID')}`;
 
-  // ── Loading state ─────────────────────────────────────────────────────────
   if (isLoading) {
     return (
       <div className="px-4 pt-6 pb-20 space-y-5">
@@ -116,7 +110,6 @@ export default function Laporan() {
     );
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="px-4 pt-6 pb-20 space-y-5">
       <h1 className="text-xl font-bold flex items-center gap-2">
@@ -124,14 +117,70 @@ export default function Laporan() {
         Laporan
       </h1>
 
-      <Tabs value={period} onValueChange={v => setPeriod(v as '7' | '30')}>
+      {/* Period Tabs */}
+      <Tabs value={period} onValueChange={v => setPeriod(v as 'daily' | '7' | '30')}>
         <TabsList className="w-full">
+          <TabsTrigger value="daily" className="flex-1">Harian</TabsTrigger>
           <TabsTrigger value="7" className="flex-1">7 Hari</TabsTrigger>
           <TabsTrigger value="30" className="flex-1">30 Hari</TabsTrigger>
         </TabsList>
       </Tabs>
 
-      {/* Summary */}
+      {/* Date picker + toggle pengeluaran (harian) */}
+      {isDaily && (
+        <Card className="border-0 shadow-sm">
+          <CardContent className="p-4 space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="report-date" className="text-xs">Tanggal Laporan</Label>
+              <Input
+                id="report-date"
+                type="date"
+                value={selectedDate}
+                max={format(new Date(), 'yyyy-MM-dd')}
+                onChange={e => setSelectedDate(e.target.value)}
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-lg bg-muted/50 p-3">
+              <div>
+                <Label htmlFor="include-expenses" className="text-sm font-medium">
+                  Masukkan pengeluaran
+                </Label>
+                <p className="text-[10px] text-muted-foreground">
+                  Pengeluaran akan mengurangi laba bersih
+                </p>
+              </div>
+              <Switch
+                id="include-expenses"
+                checked={includeExpenses}
+                onCheckedChange={setIncludeExpenses}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Toggle pengeluaran (periode 7/30) */}
+      {!isDaily && (
+        <Card className="border-0 shadow-sm">
+          <CardContent className="p-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">Masukkan pengeluaran</p>
+                <p className="text-[10px] text-muted-foreground">
+                  Pengeluaran akan mengurangi laba bersih
+                </p>
+              </div>
+              <Switch
+                id="include-expenses-period"
+                checked={includeExpenses}
+                onCheckedChange={setIncludeExpenses}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Summary Cards */}
       <div className="grid grid-cols-3 gap-2">
         <Card className="border-0 shadow-sm">
           <CardContent className="p-3 text-center">
@@ -150,18 +199,57 @@ export default function Laporan() {
         <Card className="border-0 shadow-sm">
           <CardContent className="p-3 text-center">
             <TrendingUp className="w-4 h-4 mx-auto text-accent mb-1" />
-            <p className="text-sm font-bold">{rp(totalProfit)}</p>
+            <p className="text-sm font-bold">{rp(grossProfit)}</p>
             <p className="text-[10px] text-muted-foreground">Profit</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Profit & Loss */}
+      {/* Payment breakdown (harian) */}
+      {isDaily && (
+        <Card className="border-0 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-1.5">
+              <CreditCard className="w-4 h-4" />
+              Ringkasan Penjualan Harian
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-lg bg-muted/50 p-3">
+                <p className="text-[10px] text-muted-foreground">Total Omzet</p>
+                <p className="text-sm font-bold">{rp(totalSales)}</p>
+              </div>
+              <div className="rounded-lg bg-muted/50 p-3">
+                <p className="text-[10px] text-muted-foreground">Rata-rata Transaksi</p>
+                <p className="text-sm font-bold">{rp(avgTx)}</p>
+              </div>
+            </div>
+            {paymentBreakdown.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-2 text-center">Belum ada penjualan</p>
+            ) : (
+              <div className="space-y-2">
+                {paymentBreakdown.map(method => (
+                  <div key={method.name} className="flex items-center justify-between text-sm">
+                    <div>
+                      <p className="font-medium">{method.name}</p>
+                      <p className="text-[10px] text-muted-foreground">{method.count} transaksi</p>
+                    </div>
+                    <p className="font-bold">{rp(method.amount)}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Laba Rugi */}
       <Card className="border-0 shadow-sm">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm flex items-center gap-1.5">
             <DollarSign className="w-4 h-4" />
-            Laba Rugi
+            Laba Rugi{isDaily ? ' Harian' : ''}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -203,10 +291,14 @@ export default function Laporan() {
             <span className="font-semibold">{marginPercent.toFixed(1)}%</span>
           </div>
           {totalExpenses > 0 && (
-            <div className="flex justify-between items-center text-sm text-warning">
+            <div className={`flex justify-between items-center text-sm ${includeExpenses ? 'text-warning' : 'text-muted-foreground'
+              }`}>
               <div className="flex items-center gap-2">
                 <Wallet className="w-3.5 h-3.5" />
-                <span>Pengeluaran Operasional</span>
+                <span>
+                  Pengeluaran Operasional
+                  {!includeExpenses && ' (tidak dihitung)'}
+                </span>
               </div>
               <span className="font-semibold">-{rp(totalExpenses)}</span>
             </div>
@@ -224,8 +316,8 @@ export default function Laporan() {
         </CardContent>
       </Card>
 
-      {/* Expense Breakdown */}
-      {topExpenseCategories.length > 0 && (
+      {/* Expense per kategori */}
+      {topExpenseCategories.length > 0 && includeExpenses && (
         <Card className="border-0 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-1.5">
@@ -268,48 +360,43 @@ export default function Laporan() {
         </Card>
       )}
 
-      {/* Chart */}
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Tren Penjualan</CardTitle>
-        </CardHeader>
-        <CardContent className="pb-4">
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={chartData}>
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 10 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis hide />
-              <Tooltip
-                formatter={(v: number) => [`Rp ${v.toLocaleString('id-ID')}`, 'Penjualan']}
-                contentStyle={{ fontSize: 12, borderRadius: 8 }}
-              />
-              <Bar dataKey="sales" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
+      {/* Tren Penjualan (hanya periode 7/30) */}
+      {!isDaily && (
+        <Card className="border-0 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Tren Penjualan</CardTitle>
+          </CardHeader>
+          <CardContent className="pb-4">
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={chartData}>
+                <XAxis dataKey="date" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+                <YAxis hide />
+                <Tooltip
+                  formatter={(v: number) => [`Rp ${v.toLocaleString('id-ID')}`, 'Penjualan']}
+                  contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                />
+                <Bar dataKey="sales" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Top Products */}
       <Card className="border-0 shadow-sm">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm flex items-center gap-1.5">
             <Package className="w-4 h-4" />
-            Produk Terlaris
+            Produk Terlaris{isDaily ? ' Harian' : ''}
           </CardTitle>
         </CardHeader>
         <CardContent>
           {topProducts.length === 0 ? (
-            <p className="text-xs text-muted-foreground py-4 text-center">
-              Belum ada data penjualan
-            </p>
+            <p className="text-xs text-muted-foreground py-4 text-center">Belum ada data penjualan</p>
           ) : (
             <div className="space-y-2">
               {topProducts.map((p, i) => (
-                <div key={p.productId} className="flex items-center justify-between">
+                <div key={p.key} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center">
                       {i + 1}

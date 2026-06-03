@@ -32,11 +32,33 @@ export interface ReportData {
   topProducts: TopProduct[];
 }
 
+export interface PaymentBreakdown {
+  name: string;
+  amount: number;
+  count: number;
+}
+
+export interface DailyReportData {
+  stats: {
+    totalRevenue: number;
+    totalProfit: number;
+    totalSalesCount: number;
+    avgTransaction: number;
+  };
+  paymentBreakdown: PaymentBreakdown[];
+  topProducts: TopProduct[];
+}
+
 // ── Service ───────────────────────────────────────────────────────────────────
 
 export const reportService = {
   getReport: async (period: 7 | 30): Promise<ReportData> => {
     const { data } = await api.get('/reports', { params: { period } });
+    return data.data;
+  },
+
+  getDailyReport: async (date: string): Promise<DailyReportData> => {
+    const { data } = await api.get('/reports', { params: { date } });
     return data.data;
   },
 };
