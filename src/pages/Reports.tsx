@@ -52,8 +52,10 @@ export default function Laporan() {
   const txCount = Number(stats?.totalSalesCount ?? 0);
   const avgTx = Number(stats?.avgTransaction ?? (txCount > 0 ? totalSales / txCount : 0));
 
-  const totalRevenue = totalSales;
-  const totalDiscount = Number((report as any)?.stats?.totalDiscount ?? 0);
+  const totalGrossRevenue = Number(stats?.totalGrossRevenue ?? totalSales); // tx.subtotal → sebelum diskon
+  const totalDiscount = isDaily
+    ? Number(dailyReport?.stats?.totalDiscount ?? 0)
+    : Number((report as any)?.stats?.totalDiscount ?? 0);
   const totalHpp = totalSales - grossProfit;
   const marginPercent = totalSales > 0 ? (grossProfit / totalSales) * 100 : 0;
 
@@ -258,7 +260,7 @@ export default function Laporan() {
               <ArrowUp className="w-3.5 h-3.5 text-success" />
               <span>Pendapatan Kotor</span>
             </div>
-            <span className="font-semibold">{rp(totalRevenue)}</span>
+            <span className="font-semibold">{rp(totalGrossRevenue)}</span>
           </div>
           {totalDiscount > 0 && (
             <div className="flex justify-between items-center text-sm text-destructive">

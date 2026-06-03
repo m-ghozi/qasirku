@@ -20,6 +20,7 @@ export interface TopProduct {
 
 export interface ReportData {
   period: number; // 7 atau 30
+  totalGrossRevenue: number;
   totalSales: number;
   totalProfit: number;
   totalTransactions: number;
@@ -40,6 +41,8 @@ export interface PaymentBreakdown {
 
 export interface DailyReportData {
   stats: {
+    totalGrossRevenue: number;
+    totalDiscount: number;
     totalRevenue: number;
     totalProfit: number;
     totalSalesCount: number;
