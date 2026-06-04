@@ -131,8 +131,8 @@ export default function Login() {
         <div className="w-full max-w-sm space-y-8">
           {/* Logo / judul */}
           <div className="text-center space-y-1">
-            <img src="/qasir-icon.png" alt="Qasir" className="w-32 h-32 mx-auto mb-4 object-contain" />
-            <h1 className="text-2xl font-bold tracking-tight">Qasir</h1>
+            <img src="/qasir-icon.png" alt="QasirKu" className="w-32 h-32 mx-auto mb-4 object-contain" />
+            <h1 className="text-2xl font-bold tracking-tight">QasirKu</h1>
             <p className="text-sm text-muted-foreground">Masuk untuk melanjutkan</p>
           </div>
 
@@ -181,7 +181,7 @@ export default function Login() {
       <div className="w-full max-w-xs space-y-2">
         {/* Header */}
         <div className="text-center space-y-1 mb-2">
-          <img src="/qasir-icon.png" alt="Qasir" className="w-24 h-24 mx-auto mb-4 object-contain" />
+          <img src="/qasir-icon.png" alt="QasirKu" className="w-24 h-24 mx-auto mb-4 object-contain" />
           <h1 className="text-lg font-bold">Halo, <span className="text-primary">@{username}</span></h1>
           <p className="text-sm text-muted-foreground">Masukkan PIN kamu</p>
         </div>

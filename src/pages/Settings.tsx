@@ -827,7 +827,7 @@ export default function Pengaturan() {
       {/* ── About ────────────────────────────────────────────────────────── */}
       <Card className="border-0 shadow-sm">
         <CardContent className="p-4 text-center space-y-2">
-          <p className="text-sm font-bold">Qasir</p>
+          <p className="text-sm font-bold">QasirKu</p>
           <p className="text-xs text-muted-foreground">POS Gratis untuk UMKM Indonesia 🇮🇩</p>
           <p className="text-[10px] text-muted-foreground">v2.0 • Data tersimpan di server</p>
         </CardContent>

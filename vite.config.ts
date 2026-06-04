@@ -19,11 +19,11 @@ export default defineConfig(({ mode }) => ({
     mode === "development" && componentTagger(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.ico", "kasirgratisan-icon.png", "og-image.png"],
+      includeAssets: ["favicon.ico", "qasir-icon.png", "og-image.png"],
       manifest: {
-        name: "Qasir - POS UMKM Gratis",
-        short_name: "Qasir",
-        description: "Aplikasi kasir gratis untuk UMKM Indonesia. Offline & tanpa biaya.",
+        name: "QasirKu - POS UMKM Gratis",
+        short_name: "QasirKu",
+        description: "Aplikasi kasir untuk UMKM Indonesia.",
         start_url: "/",
         display: "standalone",
         background_color: "#0F172A",

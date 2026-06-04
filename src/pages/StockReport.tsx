@@ -73,7 +73,7 @@ export default function StockReport() {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  const rp = (n: number) => `Rp ${n.toLocaleString('id-ID')}`;
+  const rp = (n: number) => `Rp ${Number(n).toLocaleString('id-ID')}`;
 
   const reasonLabels: Record<string, string> = {
     rusak: 'Rusak',

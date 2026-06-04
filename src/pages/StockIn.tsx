@@ -184,7 +184,7 @@ export default function StockInPage() {
                   type="number"
                   value={buyPrice}
                   onChange={e => setBuyPrice(e.target.value)}
-                  placeholder="5000"
+                  placeholder={(products.find(p => p.id === Number(productId))?.hpp?.toString() ?? '5000')}
                   className="h-11"
                 />
               </div>
