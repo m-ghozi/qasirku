@@ -15,14 +15,11 @@ import { Loader2 } from 'lucide-react';
  *   semua OK                        → render <Outlet />
  */
 export default function RequireAuth() {
-  const { currentUser, loading: authLoading } = useAuth();
+  const { currentUser, loading } = useAuth();
   const location = useLocation();
 
-  // Cek onboardingDone hanya setelah user terautentikasi
-  const { data: storeSetting, isLoading: settingLoading } = useStoreSetting();
-
   // Masih loading auth atau setting
-  if (authLoading || (currentUser && settingLoading)) {
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
@@ -36,11 +33,6 @@ export default function RequireAuth() {
   // Belum login
   if (!currentUser) {
     return <Navigate to="/login" state={{ from: location }} replace />;
-  }
-
-  // Login tapi onboarding belum selesai
-  if (storeSetting && !storeSetting.onboardingDone) {
-    return <Navigate to="/onboarding" replace />;
   }
 
   return <Outlet />;

@@ -8,7 +8,6 @@ import { useThemeColor } from '@/hooks/use-theme-color';
 import ErrorBoundary from "@/components/ErrorBoundary";
 import RequireAuth from "@/components/RequireAuth";
 import AppLayout from "./components/layout/AppLayout";
-import Onboarding from "./components/Onboarding";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Cashier from "./pages/Cashier";
@@ -53,7 +52,6 @@ export default function App() {
               <Routes>
                 {/* ── Public ─────────────────────────────── */}
                 <Route path="/login" element={<Login />} />
-                <Route path="/onboarding" element={<Onboarding />} />
 
                 {/* ── Protected ──────────────────────────── */}
                 <Route element={<RequireAuth />}>
