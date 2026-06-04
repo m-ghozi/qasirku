@@ -78,7 +78,9 @@ export function useExpenses(filters: ExpenseFilters = {}) {
   });
 }
 
-export function useExpenseSummary(filters: Pick<ExpenseFilters, 'range' | 'categoryId'> = {}) {
+export function useExpenseSummary(
+  filters: Pick<ExpenseFilters, 'range' | 'categoryId' | 'date'> = {}
+) {
   return useQuery({
     queryKey: [...EXPENSE_KEY, 'summary', filters],
     queryFn: () => expenseService.getSummary(filters),

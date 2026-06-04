@@ -46,6 +46,7 @@ export interface ExpenseFilters {
   range?: RangePreset;
   categoryId?: number;
   paymentMethodId?: number;
+  date?: string;
 }
 
 export interface CreateExpensePayload {
@@ -106,10 +107,12 @@ export const expenseService = {
     return data.data;
   },
 
-  getSummary: async (filters: Pick<ExpenseFilters, 'range' | 'categoryId'> = {}): Promise<ExpenseSummary> => {
-    const { data } = await api.get('/expenses/summary', { params: filters });
-    return data.data;
-  },
+  getSummary: async (
+  filters: Pick<ExpenseFilters, 'range' | 'categoryId' | 'date'> = {}
+): Promise<ExpenseSummary> => {
+  const { data } = await api.get('/expenses/summary', { params: filters });
+  return data.data;
+},
 
   getById: async (id: number): Promise<Expense> => {
     const { data } = await api.get(`/expenses/${id}`);

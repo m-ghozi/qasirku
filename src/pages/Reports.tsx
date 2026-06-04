@@ -35,9 +35,8 @@ export default function Laporan() {
   const expenseRange = isDaily ? 'today' : (period as RangePreset);
   const { data: expenseSummary, isLoading: expenseLoading } = useExpenseSummary({
     range: expenseRange,
-    ...(isDaily ? { date: selectedDate } : {}),
+    date: isDaily ? selectedDate : undefined,
   });
-
   if (!can('view_reports')) {
     return <LockedPage title="Laporan" permissionLabel="Lihat Laporan & Profit" />;
   }
