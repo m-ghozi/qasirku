@@ -1,19 +1,3 @@
-/**
- * TransactionHistory.tsx — MIGRATED (API hooks)
- *
- * Perubahan dari versi Dexie:
- *  - useLiveQuery(db.transactions) → useTransactions()
- *  - useLiveQuery(db.transactionItems) → items sudah embedded di transaction.items
- *  - useLiveQuery(db.paymentMethods) → nama metode bayar dari transaction.paymentMethod?.name
- *  - useLiveQuery(db.storeSettings) → useStoreSetting()
- *  - useLiveQuery(db.users) → nama kasir dari transaction.createdBy?.name
- *  - handleDeleteTransaction (Dexie manual) → useCancelTransaction() mutation
- *  - multiUserEnabled dihapus: kolom kasir selalu tampil jika createdBy ada
- *  - Opsi "kembalikan stok" dihapus: backend yang handle rollback stok saat cancel
- *  - getTxItems(txId) dihapus: pakai tx.items ?? [] langsung
- *  - Transaction.id sekarang number (bukan optional), date adalah string ISO
- */
-
 import { useState, useEffect } from 'react';
 import { format, startOfDay, endOfDay } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';

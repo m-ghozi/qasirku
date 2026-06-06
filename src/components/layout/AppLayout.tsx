@@ -1,16 +1,3 @@
-/**
- * AppLayout.tsx — MIGRATED (Step 2)
- *
- * Perubahan:
- *  - Hapus useLiveQuery, db, seedDefaultData → tidak relevan (data di server)
- *  - Hapus <Onboarding> → onboarding ditangani via storeSetting dari API,
- *    atau bisa dicheck via useStoreSetting() jika diperlukan
- *  - Hapus <LoginScreen> → auth sepenuhnya ditangani RequireAuth + JWT di App.tsx
- *  - Hapus multiUserEnabled → semua user wajib login via JWT, tidak ada mode single-user
- *  - useThemeColor() dari Dexie → diganti applyStoredTheme() dari localStorage
- *  - loading state → RequireAuth sudah handle spinner sebelum AppLayout dirender
- */
-
 import { Outlet } from 'react-router-dom';
 import { useEffect } from 'react';
 import BottomNav from './BottomNav';

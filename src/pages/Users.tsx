@@ -1,20 +1,3 @@
-/**
- * Users.tsx — MIGRATED (Step 11)
- *
- * Perubahan dari versi Dexie:
- *  - useLiveQuery(db.users) → useUsers()
- *  - db.users.update(id, {name, permissions}) → useUpdateUser()
- *  - db.users.add() via createUser() lokal → useCreateUser()
- *  - db.users.update(id, {isActive}) → useUpdateUser()
- *  - db.users.delete(id) → useDeleteUser()
- *  - updateUserPin() lokal (hash di frontend) → useUpdateUser({ pin })
- *  - isValidPin / isValidUsername → tetap dipakai untuk validasi sisi klien
- *  - PERMISSION_LABELS, DEFAULT_STAFF_PERMISSIONS, ALL_PERMISSIONS → dari @/lib/auth
- *  - multiUserEnabled check → dihapus (semua user wajib login via JWT)
- *  - User.isActive tipe di backend adalah Boolean, bukan 0/1
- *  - refresh() setelah edit diri sendiri → tetap ada via useAuth().refresh()
- */
-
 import { useState } from 'react';
 import {
   ArrowLeft, Plus, Edit2, Trash2, KeyRound,
@@ -47,7 +30,7 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';
 
-// Validasi sisi klien (tidak butuh Dexie)
+// Validasi sisi klien
 function isValidPin(pin: string) { return /^\d{4,6}$/.test(pin); }
 function isValidUsername(u: string) { return /^[a-z0-9_.]{3,20}$/.test(u); }
 
