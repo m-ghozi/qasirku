@@ -21,7 +21,7 @@ export default defineConfig(({ mode }) => ({
       registerType: "autoUpdate",
       includeAssets: ["favicon.ico", "qasir-icon.png", "og-image.png"],
       manifest: {
-        name: "QasirKu - POS UMKM Gratis",
+        name: "QasirKu - POS UMKM",
         short_name: "QasirKu",
         description: "Aplikasi kasir untuk UMKM Indonesia.",
         start_url: "/",

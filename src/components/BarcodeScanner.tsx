@@ -96,7 +96,7 @@ export default function BarcodeScanner({ open, onClose, onScan }: BarcodeScanner
             setPermission('denied');
             setErrorState(
               isStandalonePWA()
-                ? 'Izin kamera ditolak. Buka Settings perangkat > Apps > KasirGratisan > Permissions, lalu aktifkan Camera.'
+                ? 'Izin kamera ditolak. Buka Settings perangkat > Apps > QasirKu > Permissions, lalu aktifkan Camera.'
                 : 'Izin kamera ditolak. Klik ikon gembok di address bar dan izinkan akses kamera.',
             );
             return;
@@ -215,7 +215,7 @@ export default function BarcodeScanner({ open, onClose, onScan }: BarcodeScanner
         case 'NotAllowedError':
           setErrorState(
             isStandalonePWA()
-              ? 'Izin kamera ditolak. Buka Settings perangkat > Apps > KasirGratisan > Permissions, lalu aktifkan Camera.'
+              ? 'Izin kamera ditolak. Buka Settings perangkat > Apps > QasirKu > Permissions, lalu aktifkan Camera.'
               : 'Izin kamera ditolak. Mohon izinkan akses kamera lalu coba lagi.',
           );
           break;

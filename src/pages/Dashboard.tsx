@@ -64,7 +64,7 @@ export default function Dashboard() {
           {format(new Date(), 'EEEE, d MMMM yyyy', { locale: id })}
         </p>
         <h1 className="text-2xl font-bold tracking-tight">
-          {storeSettings?.storeName || 'KasirGratisan'}
+          {storeSettings?.storeName || 'Qasirku'}
         </h1>
       </div>
 
