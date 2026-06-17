@@ -1,19 +1,21 @@
 import { useState } from 'react';
-import { format } from 'date-fns';
+import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import {
   BarChart3, TrendingUp, ShoppingCart, Package,
-  DollarSign, ArrowDown, ArrowUp, Minus, Wallet, CreditCard,
+  DollarSign, ArrowDown, ArrowUp, Minus, Wallet, CreditCard, Download,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Button } from '@/components/ui/button';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { useAuth } from '@/hooks/use-auth';
 import LockedPage from '@/components/LockedPage';
 import { useReport, useDailyReport } from '@/hooks/use-report';
 import { useExpenseSummary } from '@/hooks/use-expenses';
+import ExportReportDialog from '@/components/reports/exportReportDialog';
 import type { RangePreset } from '@/services/expense.service';
 
 export default function Laporan() {
@@ -21,52 +23,43 @@ export default function Laporan() {
   const [period, setPeriod] = useState<'daily' | '7' | '30'>('7');
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [includeExpenses, setIncludeExpenses] = useState(true);
+  const [isExportOpen, setIsExportOpen] = useState(false);
 
   const isDaily = period === 'daily';
   const days = isDaily ? null : (Number(period) as 7 | 30);
 
-  // ── Hooks (selalu dipanggil sebelum permission gate) ──────────────────────
-  const { data: report, isLoading: reportLoading } =
-    useReport(days ?? 7);
-
-  const { data: dailyReport, isLoading: dailyLoading } =
-    useDailyReport(isDaily ? selectedDate : '');
-
+  // ── Hooks ─────────────────────────────────────────────────────────────────
+  const { data: report, isLoading: reportLoading } = useReport(days ?? 7);
+  const { data: dailyReport, isLoading: dailyLoading } = useDailyReport(isDaily ? selectedDate : '');
   const expenseRange = isDaily ? 'today' : (period as RangePreset);
   const { data: expenseSummary, isLoading: expenseLoading } = useExpenseSummary({
     range: expenseRange,
     date: isDaily ? selectedDate : undefined,
   });
+
   if (!can('view_reports')) {
     return <LockedPage title="Laporan" permissionLabel="Lihat Laporan & Profit" />;
   }
 
   const isLoading = isDaily ? dailyLoading : (reportLoading || expenseLoading);
 
-  // ── Derived values ─────────────────────────────────────────────────────────
+  // ── Derived values ────────────────────────────────────────────────────────
   const stats = isDaily ? dailyReport?.stats : ((report as any)?.stats ?? report ?? {});
-
   const totalSales = Number(stats?.totalRevenue ?? 0);
   const grossProfit = Number(stats?.totalProfit ?? 0);
   const txCount = Number(stats?.totalSalesCount ?? 0);
   const avgTx = Number(stats?.avgTransaction ?? (txCount > 0 ? totalSales / txCount : 0));
-
-  const totalGrossRevenue = Number(stats?.totalGrossRevenue ?? totalSales); // tx.subtotal → sebelum diskon
+  const totalGrossRevenue = Number(stats?.totalGrossRevenue ?? totalSales);
   const totalDiscount = isDaily
     ? Number(dailyReport?.stats?.totalDiscount ?? 0)
     : Number((report as any)?.stats?.totalDiscount ?? 0);
   const totalHpp = totalSales - grossProfit;
   const marginPercent = totalSales > 0 ? (grossProfit / totalSales) * 100 : 0;
-
   const totalExpenses = parseFloat(expenseSummary?.totalAmount ?? '0');
   const appliedExpenses = includeExpenses ? totalExpenses : 0;
   const netProfit = grossProfit - appliedExpenses;
   const netMarginPercent = totalSales > 0 ? (netProfit / totalSales) * 100 : 0;
-
-  // Payment breakdown (harian saja)
   const paymentBreakdown = dailyReport?.paymentBreakdown ?? [];
-
-  // Expense categories
   const topExpenseCategories = (expenseSummary?.byCategory ?? [])
     .map((item: any) => ({
       name: item.category?.name ?? 'Tanpa kategori',
@@ -76,19 +69,12 @@ export default function Laporan() {
     }))
     .sort((a: any, b: any) => b.amount - a.amount)
     .slice(0, 5);
-
-  // Chart data (hanya untuk periode 7/30)
   const rawChartData = (report as any)?.chartData ?? [];
   const chartData = rawChartData.map((stat: any) => ({
     date: stat.date,
     sales: Number(stat.revenue ?? stat.sales ?? 0),
   }));
-
-  // Top products
-  const rawTopProducts = isDaily
-    ? (dailyReport?.topProducts ?? [])
-    : ((report as any)?.topProducts ?? []);
-
+  const rawTopProducts = isDaily ? (dailyReport?.topProducts ?? []) : ((report as any)?.topProducts ?? []);
   const topProducts = rawTopProducts.map((p: any, idx: number) => ({
     key: p.productId ?? p.name ?? idx,
     name: p.name,
@@ -98,6 +84,18 @@ export default function Laporan() {
   }));
 
   const rp = (n: number) => `Rp ${n.toLocaleString('id-ID')}`;
+
+  // ── Export Range ──────────────────────────────────────────────────────────
+  let startMs = Date.now();
+  let endMs = Date.now();
+  if (isDaily) {
+    const d = new Date(`${selectedDate}T00:00:00`);
+    startMs = startOfDay(d).getTime();
+    endMs = endOfDay(d).getTime();
+  } else {
+    endMs = endOfDay(new Date()).getTime();
+    startMs = startOfDay(subDays(new Date(), days! - 1)).getTime();
+  }
 
   if (isLoading) {
     return (
@@ -113,10 +111,21 @@ export default function Laporan() {
 
   return (
     <div className="px-4 pt-6 pb-20 space-y-5">
-      <h1 className="text-xl font-bold flex items-center gap-2">
-        <BarChart3 className="w-5 h-5 text-primary" />
-        Laporan
-      </h1>
+      {/* Header */}
+      <div className="flex items-center justify-between gap-2">
+        <h1 className="text-xl font-bold flex items-center gap-2">
+          <BarChart3 className="w-5 h-5 text-primary" />
+          Laporan
+        </h1>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-9 gap-1.5"
+          onClick={() => setIsExportOpen(true)}
+        >
+          <Download className="w-4 h-4" /> Export Excel
+        </Button>
+      </div>
 
       {/* Period Tabs */}
       <Tabs value={period} onValueChange={v => setPeriod(v as 'daily' | '7' | '30')}>
@@ -292,14 +301,10 @@ export default function Laporan() {
             <span className="font-semibold">{marginPercent.toFixed(1)}%</span>
           </div>
           {totalExpenses > 0 && (
-            <div className={`flex justify-between items-center text-sm ${includeExpenses ? 'text-warning' : 'text-muted-foreground'
-              }`}>
+            <div className={`flex justify-between items-center text-sm ${includeExpenses ? 'text-warning' : 'text-muted-foreground'}`}>
               <div className="flex items-center gap-2">
                 <Wallet className="w-3.5 h-3.5" />
-                <span>
-                  Pengeluaran Operasional
-                  {!includeExpenses && ' (tidak dihitung)'}
-                </span>
+                <span>Pengeluaran Operasional{!includeExpenses && ' (tidak dihitung)'}</span>
               </div>
               <span className="font-semibold">-{rp(totalExpenses)}</span>
             </div>
@@ -416,6 +421,13 @@ export default function Laporan() {
           )}
         </CardContent>
       </Card>
+
+      <ExportReportDialog
+        open={isExportOpen}
+        onOpenChange={setIsExportOpen}
+        defaultStartMs={startMs}
+        defaultEndMs={endMs}
+      />
     </div>
   );
 }
