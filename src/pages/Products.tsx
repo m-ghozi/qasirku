@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo } from 'react';
-import { Plus, Search, Edit2, Trash2, Package as PackageIcon, Camera, X, Copy } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Package as PackageIcon, Camera, X, Copy, ScanLine } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,6 +16,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useProducts, useCreateProduct, useUpdateProduct, useDeleteProduct } from '@/hooks/use-products';
 import { useCategories } from '@/hooks/use-categories';
 import { useUnits } from '@/hooks/use-units';
+import BarcodeScanner from '@/components/BarcodeScanner';
 import type { Product } from '@/services/product.service';
 
 export default function Produk() {
@@ -40,6 +41,9 @@ export default function Produk() {
   const [description, setDescription] = useState('');
   const [photo, setPhoto] = useState<string | undefined>(undefined);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Field tujuan hasil scan kamera: SKU atau Barcode.
+  const [scanTarget, setScanTarget] = useState<'sku' | 'barcode' | null>(null);
 
   const { data: products = [], isLoading: loadingProducts } = useProducts();
   const { data: categories = [] } = useCategories();
@@ -376,32 +380,53 @@ export default function Produk() {
                 className="h-11"
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>SKU *</Label>
+
+            {/* SKU — full row with scan button */}
+            <div className="space-y-1.5">
+              <Label>SKU *</Label>
+              <div className="flex gap-2">
                 <Input
                   value={sku}
                   onChange={e => setSku(e.target.value)}
                   placeholder="Wajib diisi, contoh: NG001"
-                  className="h-11"
+                  className="h-11 flex-1"
                 />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-11 w-11 shrink-0"
+                  title="Scan dengan kamera"
+                  onClick={() => setScanTarget('sku')}
+                >
+                  <ScanLine className="w-4 h-4" />
+                </Button>
               </div>
-              <div className="space-y-1.5">
-                <Label>Kategori *</Label>
-                <Select value={categoryId} onValueChange={setCategoryId}>
-                  <SelectTrigger className="h-11">
-                    <SelectValue placeholder="Pilih" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {categories.map((c: { id: number; name: string; icon: string }) => (
+            </div>
+
+            {/* Kategori — full row */}
+            <div className="space-y-1.5">
+              <Label>Kategori *</Label>
+              <Select value={categoryId} onValueChange={setCategoryId}>
+                <SelectTrigger className="h-11">
+                  <SelectValue placeholder="Pilih kategori" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.length > 0 ? (
+                    categories.map((c: { id: number; name: string; icon: string }) => (
                       <SelectItem key={c.id} value={c.id.toString()}>
                         {c.icon} {c.name}
                       </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                    ))
+                  ) : (
+                    <SelectItem value="__empty" disabled>
+                      Belum ada kategori
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
             </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Harga Jual *</Label>
@@ -424,6 +449,7 @@ export default function Produk() {
                 />
               </div>
             </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>
@@ -463,6 +489,8 @@ export default function Produk() {
                 </Select>
               </div>
             </div>
+
+            {/* Barcode — full row with copy + scan buttons */}
             <div className="space-y-1.5">
               <Label>Barcode</Label>
               <div className="flex gap-2">
@@ -482,8 +510,19 @@ export default function Produk() {
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-11 w-11 shrink-0"
+                  title="Scan dengan kamera"
+                  onClick={() => setScanTarget('barcode')}
+                >
+                  <ScanLine className="w-4 h-4" />
+                </Button>
               </div>
             </div>
+
             <div className="space-y-1.5">
               <Label>Deskripsi</Label>
               <Textarea
@@ -495,6 +534,7 @@ export default function Produk() {
               />
               <p className="text-[10px] text-muted-foreground text-right">{description.length}/500</p>
             </div>
+
             <Button
               className="w-full h-12 text-base font-semibold"
               onClick={handleSave}
@@ -525,6 +565,18 @@ export default function Produk() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Scanner kamera untuk SKU / Barcode */}
+      <BarcodeScanner
+        open={scanTarget !== null}
+        onClose={() => setScanTarget(null)}
+        onScan={(value) => {
+          const v = value.trim();
+          if (scanTarget === 'sku') setSku(v);
+          else if (scanTarget === 'barcode') setBarcode(v);
+          setScanTarget(null);
+        }}
+      />
     </div>
   );
 }
