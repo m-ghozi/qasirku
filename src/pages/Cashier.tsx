@@ -664,7 +664,7 @@ export default function Kasir() {
             </Button>
           </div>
 
-          <div className="flex gap-2 mb-3">
+          <div className="flex gap-2 mb-3 px-1">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input placeholder="Cari produk..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 h-10" />
@@ -674,7 +674,7 @@ export default function Kasir() {
             </Button>
           </div>
 
-          <div className="flex gap-2 mb-3">
+          <div className="flex gap-2 mb-3 px-1">
             <div className="relative flex-1">
               <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
