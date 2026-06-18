@@ -788,13 +788,13 @@ export default function Kasir() {
 
       {/* Open Bills Sheet */}
       <Sheet open={openBillsOpen} onOpenChange={setOpenBillsOpen}>
-        <SheetContent side="bottom" className="h-[80vh] rounded-t-2xl max-w-lg md:max-w-xl mx-auto">
+        <SheetContent side="bottom" className="h-[80vh] rounded-t-2xl max-w-lg md:max-w-xl mx-auto flex flex-col">
           <SheetHeader>
             <SheetTitle className="text-left flex items-center gap-2">
               <ClipboardList className="w-4 h-4 text-primary" />Open Bills ({openBillsCount})
             </SheetTitle>
           </SheetHeader>
-          <div className="mt-4 overflow-y-auto pb-6 space-y-2">
+          <div className="mt-4 flex-1 min-h-0 overflow-y-auto pb-6 space-y-2">
             {openBills.length === 0 ? (
               <div className="text-center py-12">
                 <ClipboardList className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />

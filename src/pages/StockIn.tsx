@@ -15,6 +15,7 @@ import LockedPage from '@/components/LockedPage';
 import { useStockIn, useCreateStockIn } from '@/hooks/use-stock';
 import { useSuppliers } from '@/hooks/use-suppliers';
 import { useProducts } from '@/hooks/use-products';
+import NumberInput from '@/components/NumberInput';
 
 export default function StockInPage() {
   const { can } = useAuth();
@@ -170,23 +171,11 @@ export default function StockInPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Jumlah *</Label>
-                <Input
-                  type="number"
-                  value={quantity}
-                  onChange={e => setQuantity(e.target.value)}
-                  placeholder="10"
-                  className="h-11"
-                />
+                <NumberInput value={quantity} onChange={setQuantity} placeholder="10" className="h-11" decimal />
               </div>
               <div className="space-y-1.5">
                 <Label>Harga Beli/Unit *</Label>
-                <Input
-                  type="number"
-                  value={buyPrice}
-                  onChange={e => setBuyPrice(e.target.value)}
-                  placeholder={(products.find(p => p.id === Number(productId))?.hpp?.toString() ?? '5000')}
-                  className="h-11"
-                />
+                <NumberInput value={buyPrice} onChange={setBuyPrice} placeholder="5000" className="h-11" decimal />
               </div>
             </div>
             {quantity && buyPrice && (
