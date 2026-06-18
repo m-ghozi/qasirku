@@ -26,22 +26,26 @@ export default function ProductPicker({
 }: ProductPickerProps) {
     const [query, setQuery] = useState('');
     const [scannerOpen, setScannerOpen] = useState(false);
+    const [isOpen, setIsOpen] = useState(false);
 
     const available = filter ? products.filter(filter) : products;
     const selected = products.find(p => p.id === Number(value));
 
     const q = query.trim().toLowerCase();
-    const matches = available.filter(p =>
-        p.name.toLowerCase().includes(q) ||
-        p.sku?.toLowerCase().includes(q) ||
-        p.barcode?.toLowerCase().includes(q)
-    );
+    const matches = q
+        ? available.filter(p =>
+            p.name.toLowerCase().includes(q) ||
+            p.sku?.toLowerCase().includes(q) ||
+            p.barcode?.toLowerCase().includes(q)
+        )
+        : available;
 
     const handleScan = (code: string) => {
         setScannerOpen(false);
+        setIsOpen(false);
         const product = available.find(p => p.sku === code || p.barcode === code);
         if (product) {
-            onChange(product.id.toString()); // Non-null assertion dihapus
+            onChange(product.id.toString());
             setQuery('');
         } else {
             toast.error(`Produk dengan SKU/Barcode "${code}" tidak ditemukan`);
@@ -86,6 +90,8 @@ export default function ProductPicker({
                         placeholder={placeholder}
                         value={query}
                         onChange={e => setQuery(e.target.value)}
+                        onFocus={() => setIsOpen(true)}
+                        onBlur={() => setTimeout(() => setIsOpen(false), 150)}
                         className="h-11 pl-9"
                     />
                 </div>
@@ -94,7 +100,7 @@ export default function ProductPicker({
                 </Button>
             </div>
 
-            {q && (
+            {isOpen && (
                 <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border bg-popover shadow-lg divide-y">
                     {matches.length === 0 ? (
                         <div className="text-center py-8">
@@ -106,7 +112,7 @@ export default function ProductPicker({
                             <button
                                 type="button"
                                 key={p.id}
-                                onClick={() => { onChange(p.id.toString()); setQuery(''); }} // Non-null assertion dihapus
+                                onClick={() => { onChange(p.id.toString()); setQuery(''); setIsOpen(false); }}
                                 className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left hover:bg-muted/60 active:bg-muted"
                             >
                                 <div className="min-w-0">
