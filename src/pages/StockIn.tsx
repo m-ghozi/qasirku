@@ -4,7 +4,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -16,6 +15,8 @@ import { useStockIn, useCreateStockIn } from '@/hooks/use-stock';
 import { useSuppliers } from '@/hooks/use-suppliers';
 import { useProducts } from '@/hooks/use-products';
 import NumberInput from '@/components/NumberInput';
+import SearchableSelect from '@/components/SearchableSelect';
+import ProductPicker from '@/components/ProductPicker';
 
 export default function StockInPage() {
   const { can } = useAuth();
@@ -85,17 +86,16 @@ export default function StockInPage() {
         </Button>
       </div>
 
-      <Select value={filterSupplier} onValueChange={setFilterSupplier}>
-        <SelectTrigger className="h-10">
-          <SelectValue placeholder="Filter Supplier" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">Semua Supplier</SelectItem>
-          {suppliers.map(s => (
-            <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <SearchableSelect
+        value={filterSupplier}
+        onChange={setFilterSupplier}
+        placeholder="Filter Supplier"
+        searchPlaceholder="Cari supplier..."
+        options={[
+          { value: 'all', label: 'Semua Supplier' },
+          ...(suppliers?.map(s => ({ value: s.id!.toString(), label: s.name })) ?? []),
+        ]}
+      />
 
       <p className="text-xs text-muted-foreground">{filtered.length} catatan</p>
 
@@ -118,7 +118,7 @@ export default function StockInPage() {
                         +{si.quantity}
                       </span>
                       <span className="text-xs text-muted-foreground">
-                        @ Rp {si.buyPrice.toLocaleString('id-ID')}
+                        @ Rp {Number(si.buyPrice).toLocaleString('id-ID')}
                       </span>
                     </div>
                     {si.notes && (
@@ -130,7 +130,7 @@ export default function StockInPage() {
                       {format(new Date(si.date), 'dd MMM yy', { locale: id })}
                     </p>
                     <p className="text-sm font-bold mt-1">
-                      Rp {si.totalPrice.toLocaleString('id-ID')}
+                      Rp {Number(si.totalPrice).toLocaleString('id-ID')}
                     </p>
                   </div>
                 </div>
@@ -146,27 +146,22 @@ export default function StockInPage() {
           <div className="space-y-4 mt-2">
             <div className="space-y-1.5">
               <Label>Produk *</Label>
-              <Select value={productId} onValueChange={setProductId}>
-                <SelectTrigger className="h-11"><SelectValue placeholder="Pilih produk" /></SelectTrigger>
-                <SelectContent>
-                  {products.map(p => (
-                    <SelectItem key={p.id} value={p.id.toString()}>
-                      {p.name} (stok: {p.stock})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <ProductPicker
+                products={products ?? []}
+                value={productId}
+                onChange={setProductId}
+                showHpp
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Supplier *</Label>
-              <Select value={supplierId} onValueChange={setSupplierId}>
-                <SelectTrigger className="h-11"><SelectValue placeholder="Pilih supplier" /></SelectTrigger>
-                <SelectContent>
-                  {suppliers.map(s => (
-                    <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={supplierId}
+                onChange={setSupplierId}
+                placeholder="Pilih supplier"
+                searchPlaceholder="Cari supplier..."
+                options={suppliers?.map(s => ({ value: s.id!.toString(), label: s.name })) ?? []}
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
@@ -175,7 +170,7 @@ export default function StockInPage() {
               </div>
               <div className="space-y-1.5">
                 <Label>Harga Beli/Unit *</Label>
-                <NumberInput value={buyPrice} onChange={setBuyPrice} placeholder="5000" className="h-11" decimal />
+                <NumberInput value={buyPrice} onChange={setBuyPrice} placeholder="5.000" className="h-11" decimal />
               </div>
             </div>
             {quantity && buyPrice && (
