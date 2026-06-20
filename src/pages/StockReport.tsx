@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { Package, ArrowDownToLine, ArrowUpFromLine, TrendingUp, AlertTriangle, Warehouse, BarChart3 } from 'lucide-react';
+import { Package, ArrowDownToLine, ArrowUpFromLine, TrendingUp, AlertTriangle, Warehouse, BarChart3, Clock, CalendarX2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
+import { format } from 'date-fns';
+import { id } from 'date-fns/locale';
 import { useAuth } from '@/hooks/use-auth';
 import LockedPage from '@/components/LockedPage';
 import { useStockReport } from '@/hooks/use-stock';
@@ -30,6 +32,8 @@ export default function StockReport() {
   const stockOutByReason = report?.stockOutByReason ?? [];
   const lowStockProducts = report?.alerts.lowStock ?? [];
   const outOfStockProducts = report?.alerts.outOfStock ?? [];
+  const expiredBatches = report?.alerts.expired ?? [];
+  const expiringSoonBatches = report?.alerts.expiringSoon ?? [];
 
   // ── Chart data ────────────────────────────────────────────────────────────
 
@@ -231,6 +235,69 @@ export default function StockReport() {
             {outOfStockProducts.length > 5 && (
               <p className="text-xs text-muted-foreground text-center">
                 +{outOfStockProducts.length - 5} produk lainnya
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+      {/* Sudah Kadaluarsa */}
+      {expiredBatches.length > 0 && (
+        <Card className="border-0 shadow-sm border-destructive/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-1.5 text-destructive">
+              <CalendarX2 className="w-4 h-4" />
+              Sudah Kadaluarsa ({expiredBatches.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {expiredBatches.slice(0, 5).map(b => (
+              <div key={b.id} className="flex items-center justify-between">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm truncate">{b.productName}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {format(new Date(b.expireDate), 'dd MMM yyyy', { locale: id })}
+                  </p>
+                </div>
+                <span className="text-sm font-bold text-destructive shrink-0">
+                  {b.quantity} {b.unit}
+                </span>
+              </div>
+            ))}
+            {expiredBatches.length > 5 && (
+              <p className="text-xs text-muted-foreground text-center">
+                +{expiredBatches.length - 5} batch lainnya
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Akan Kadaluarsa (≤7 hari) */}
+      {expiringSoonBatches.length > 0 && (
+        <Card className="border-0 shadow-sm border-warning/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-1.5 text-warning">
+              <Clock className="w-4 h-4" />
+              Akan Kadaluarsa ≤ 7 Hari ({expiringSoonBatches.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {expiringSoonBatches.slice(0, 5).map(b => (
+              <div key={b.id} className="flex items-center justify-between">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm truncate">{b.productName}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {format(new Date(b.expireDate), 'dd MMM yyyy', { locale: id })}
+                  </p>
+                </div>
+                <span className="text-sm font-bold text-warning shrink-0">
+                  {b.quantity} {b.unit}
+                </span>
+              </div>
+            ))}
+            {expiringSoonBatches.length > 5 && (
+              <p className="text-xs text-muted-foreground text-center">
+                +{expiringSoonBatches.length - 5} batch lainnya
               </p>
             )}
           </CardContent>

@@ -9,6 +9,7 @@ export interface StockIn {
   quantity: number;
   buyPrice: number;
   totalPrice: number;
+  expireDate?: string | null;
   date: string;
   notes?: string;
   createdById?: number;
@@ -45,7 +46,18 @@ export interface StockReport {
   alerts: {
     lowStock: { id: number; name: string; stock: number; unit: string }[];
     outOfStock: { id: number; name: string; stock: number; unit: string }[];
+    expired: ExpiringBatch[];
+    expiringSoon: ExpiringBatch[];
   };
+}
+
+export interface ExpiringBatch {
+  id: number;
+  productId: number;
+  productName: string;
+  unit: string;
+  quantity: number;
+  expireDate: string;
 }
 
 export interface CreateStockInPayload {
@@ -53,6 +65,7 @@ export interface CreateStockInPayload {
   supplierId?: number;
   quantity: number;
   buyPrice: number;
+  expireDate?: string | null;
   notes?: string;
 }
 

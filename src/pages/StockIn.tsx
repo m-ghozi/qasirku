@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { id } from 'date-fns/locale';
 import { Link } from 'react-router-dom';
+import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import LockedPage from '@/components/LockedPage';
 import { useStockIn, useCreateStockIn } from '@/hooks/use-stock';
@@ -27,6 +28,7 @@ export default function StockInPage() {
   const [quantity, setQuantity] = useState('');
   const [buyPrice, setBuyPrice] = useState('');
   const [notes, setNotes] = useState('');
+  const [expireDate, setExpireDate] = useState('');
   const [filterSupplier, setFilterSupplier] = useState('all');
 
   const { data: stockIns = [] } = useStockIn();
@@ -43,7 +45,7 @@ export default function StockInPage() {
   );
 
   const openAdd = () => {
-    setProductId(''); setSupplierId(''); setQuantity(''); setBuyPrice(''); setNotes('');
+    setProductId(''); setSupplierId(''); setQuantity(''); setExpireDate(''); setBuyPrice(''); setNotes('');
     setDialogOpen(true);
   };
 
@@ -61,6 +63,7 @@ export default function StockInPage() {
         supplierId: Number(supplierId),
         quantity: qty,
         buyPrice: price,
+        expireDate: expireDate || undefined,
         notes: notes.trim() || undefined,
       },
       { onSuccess: () => setDialogOpen(false) }
@@ -124,6 +127,20 @@ export default function StockInPage() {
                     {si.notes && (
                       <p className="text-xs text-muted-foreground mt-1 italic">{si.notes}</p>
                     )}
+                    {si.expireDate && (
+                      <span
+                        className={cn(
+                          'text-xs font-medium px-1.5 py-0.5 rounded mt-1.5 inline-block',
+                          new Date(si.expireDate) < new Date()
+                            ? 'bg-destructive/10 text-destructive'
+                            : (new Date(si.expireDate).getTime() - Date.now()) / 86400000 <= 7
+                              ? 'bg-amber-500/10 text-amber-600'
+                              : 'bg-muted text-muted-foreground'
+                        )}
+                      >
+                        Exp: {format(new Date(si.expireDate), 'dd MMM yy', { locale: id })}
+                      </span>
+                    )}
                   </div>
                   <div className="text-right">
                     <p className="text-xs text-muted-foreground">
@@ -181,6 +198,18 @@ export default function StockInPage() {
                 </span>
               </div>
             )}
+            <div className="space-y-1.5">
+              <Label>
+                Tanggal Kadaluarsa
+                <span className="ml-1 text-[10px] text-muted-foreground font-normal">(opsional)</span>
+              </Label>
+              <Input
+                type="date"
+                value={expireDate}
+                onChange={e => setExpireDate(e.target.value)}
+                className="h-11"
+              />
+            </div>
             <div className="space-y-1.5">
               <Label>Catatan</Label>
               <Input

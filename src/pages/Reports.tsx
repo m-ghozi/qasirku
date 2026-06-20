@@ -15,7 +15,7 @@ import { useAuth } from '@/hooks/use-auth';
 import LockedPage from '@/components/LockedPage';
 import { useReport, useDailyReport } from '@/hooks/use-report';
 import { useExpenseSummary } from '@/hooks/use-expenses';
-import ExportReportDialog from '@/components/reports/exportReportDialog';
+import ExportReportDialog from '@/components/reports/ExportReportDialog';
 import type { RangePreset } from '@/services/expense.service';
 
 export default function Laporan() {
