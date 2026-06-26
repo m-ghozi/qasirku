@@ -12,7 +12,8 @@ Aplikasi Point of Sale (POS) Progressive Web App gratis dan open-source yang dir
 - **Manajemen Pengeluaran** — Pencatatan pengeluaran operasional bisnis berdasarkan kategori dan metode pembayaran, dilengkapi visualisasi kartu ringkasan total pengeluaran dan filter rentang waktu (hari ini, 7 hari, 30 hari, bulan ini, semua).
 - **Manajemen Produk & SKU** — Manajemen katalog produk lengkap dengan kategori, SKU (unik & wajib), satuan, deskripsi, foto produk, dan dukungan barcode.
 - **Manajemen Stok & HPP (COGS)** — Pencatatan barang masuk (Stock In) dari supplier dan barang keluar non-penjualan (Stock Out - rusak, hilang, dll). Harga Pokok Penjualan (HPP) dihitung otomatis menggunakan metode *Weighted Average* setiap kali stok baru ditambahkan.
-- **Laporan & Analitik** — Grafik penjualan 7/30 hari terakhir, produk terlaris, total pendapatan, margin keuntungan bersih, laporan pengeluaran, serta audit log mutasi stok.
+- **Laporan & Analitik** — Grafik penjualan 7/30 hari terakhir, produk terlaris, total pendapatan, margin keuntungan bersih, laporan pengeluaran, serta audit log mutasi stok. Laporan dapat diekspor ke file **Excel (.xlsx)** langsung dari sisi klien.
+- **Riwayat Transaksi** — Halaman daftar seluruh transaksi penjualan beserta detail item dan struk untuk dicetak/dikirim ulang.
 - **Multi-User & Hak Akses** — Autentikasi dengan peran Owner & Staff. Owner dapat mengatur hak akses spesifik bagi staff (seperti mengelola produk, melihat laporan, mengakses pengeluaran, dll). Staff masuk menggunakan PIN 4-6 digit yang aman.
 - **Barcode Scanning** — Pemindaian barcode produk langsung menggunakan kamera perangkat (mendukung EAN-13, EAN-8, UPC-A, UPC-E, Code-128, dll) atau input manual keyboard.
 - **PWA (Progressive Web App)** — Dapat diinstal langsung ke layar utama perangkat (homescreen) di Android, iOS, maupun Desktop dengan dukungan Service Worker (Workbox).
@@ -39,6 +40,7 @@ Aplikasi Point of Sale (POS) Progressive Web App gratis dan open-source yang dir
 | **PWA Support** | vite-plugin-pwa (Workbox) |
 | **Barcode Scanner** | html5-qrcode (camera + manual input) |
 | **Receipt Rendering** | html2canvas (to PNG), Web Bluetooth Print |
+| **Excel Export** | ExcelJS (ekspor laporan .xlsx sisi klien) |
 | **Typography** | Plus Jakarta Sans |
 
 ---
@@ -99,28 +101,35 @@ src/
 ├── lib/
 │   ├── api.ts               # Instance Axios dengan interceptor JWT & auto-logout
 │   ├── auth.ts              # Fungsi helper otorisasi JWT, decode token, & pemetaan izin
-│   ├── seed-default-data.ts # Utilitas inisialisasi/seeding data default (kategori, dll)
+│   ├── export-report.ts     # Ekspor laporan ke file Excel (.xlsx) via ExcelJS
 │   ├── utils.ts             # Fungsi utility umum (e.g., cn helper untuk Tailwind)
 │   └── image-utils.ts       # Kompresi gambar produk sisi klien sebelum diunggah
 ├── components/
 │   ├── layout/
 │   │   ├── AppLayout.tsx    # Tata letak utama responsif (mobile-first / tablet split-pane)
 │   │   └── BottomNav.tsx    # Navigasi bawah (5 tab utama, tombol kasir di tengah)
-│   ├── ui/                  # Komponen UI primitif shadcn/ui (40+)
+│   ├── reports/
+│   │   └── ExportReportDialog.tsx # Dialog pemilihan rentang & ekspor laporan ke Excel
+│   ├── ui/                  # Komponen UI primitif shadcn/ui (48 komponen)
 │   ├── BarcodeScanner.tsx   # Scanner barcode kamera dengan penanganan izin PWA
 │   ├── CustomerPicker.tsx   # Pilihan pelanggan dalam transaksi kasir
+│   ├── ProductPicker.tsx    # Pemilih produk (pencarian) untuk kasir & form stok
+│   ├── SearchableSelect.tsx # Dropdown select dengan pencarian
+│   ├── NumberInput.tsx      # Input angka dengan format ribuan/mata uang
 │   ├── ErrorBoundary.tsx    # Penanganan error global komponen React
+│   ├── RequireAuth.tsx      # Guard rute yang mewajibkan sesi login
 │   ├── LockedPage.tsx       # Tampilan fallback saat rute tidak memiliki izin akses
 │   ├── NavLink.tsx          # Tautan navigasi yang sadar hak akses (permission-aware)
 │   ├── Receipt.tsx          # Render struk belanja, unduh gambar, share, & print Bluetooth
-│   └── ThemeColorPicker.tsx # Picker warna aksen tema (8 pilihan warna)
+│   └── ThemeColorPicker.tsx # Picker warna aksen tema (10 pilihan warna)
 ├── pages/
 │   ├── Dashboard.tsx        # Ringkasan statistik cepat, pintasan aksi, & peringatan stok menipis
 │   ├── Cashier.tsx          # Halaman kasir utama (pemilihan item, keranjang, checkout)
 │   ├── Customers.tsx        # Manajemen pelanggan (CRUD & riwayat transaksi)
 │   ├── Expenses.tsx         # Manajemen pengeluaran bisnis (CRUD & filter)
 │   ├── Products.tsx         # Manajemen produk & SKU produk
-│   ├── Reports.tsx          # Laporan grafis penjualan, profit, dan omset
+│   ├── Reports.tsx          # Laporan grafis penjualan, profit, dan omset + ekspor Excel
+│   ├── TransactionHistory.tsx # Riwayat seluruh transaksi penjualan & cetak ulang struk
 │   ├── Settings.tsx         # Pengaturan toko, satuan unit, kategori, metode bayar, & PWA
 │   ├── Users.tsx            # Pengelolaan hak akses staff/kasir (khusus owner)
 │   ├── Supplier.tsx         # CRUD manajemen supplier mitra
@@ -128,19 +137,32 @@ src/
 │   ├── StockOut.tsx         # Pencatatan mutasi barang keluar (rusak/hilang)
 │   ├── StockReport.tsx      # Laporan log mutasi/aliran stok produk
 │   ├── Login.tsx            # Halaman login staff/owner dengan PIN/Username
+│   ├── Index.tsx            # Halaman fallback default (tidak terpasang di routing)
 │   └── NotFound.tsx         # Halaman fallback 404
 ├── hooks/
+│   ├── index.ts             # Re-export agregat seluruh hooks
 │   ├── use-auth.tsx         # Context & hook autentikasi sesi user dan izin hak akses
 │   ├── use-customers.ts     # Hook query/mutasi data pelanggan
 │   ├── use-expenses.tsx     # Hook query/mutasi data pengeluaran operasional
 │   ├── use-products.ts      # Hook query/mutasi katalog produk
+│   ├── use-categories.ts    # Hook query/mutasi kategori produk
+│   ├── use-units.ts         # Hook query/mutasi satuan unit
+│   ├── use-payment-methods.ts # Hook query/mutasi metode pembayaran
+│   ├── use-suppliers.ts     # Hook query/mutasi data supplier
 │   ├── use-stock.ts         # Hook query/mutasi transaksi barang masuk & keluar
 │   ├── use-transactions.ts  # Hook query/mutasi transaksi kasir
+│   ├── use-users.ts         # Hook query/mutasi pengguna & hak akses staff
+│   ├── use-dashboard.ts     # Hook agregasi statistik dashboard
+│   ├── use-report.ts        # Hook query data laporan & analitik
+│   ├── use-store-setting.ts # Hook query/mutasi pengaturan toko
 │   ├── use-theme-color.ts   # Sinkronisasi warna aksen tema terpilih ke CSS
 │   ├── use-pwa-install.ts   # Pendeteksi & pemicu prompt instalasi PWA
 │   ├── use-mobile.tsx       # Deteksi ukuran layar perangkat bergerak
 │   └── use-toast.ts         # Pemicu notifikasi pop-up (toast)
 └── services/                # Layer integrasi API Client-Server untuk setiap resource
+                             # (product, customer, transaction, stock, supplier,
+                             #  category, unit, paymentMethod, expense, report,
+                             #  dashboard, storeSetting, user)
 ```
 
 ---
