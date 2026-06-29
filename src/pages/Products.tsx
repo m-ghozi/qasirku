@@ -18,6 +18,7 @@ import { useCategories } from '@/hooks/use-categories';
 import { useUnits } from '@/hooks/use-units';
 import BarcodeScanner from '@/components/BarcodeScanner';
 import type { Product } from '@/services/product.service';
+import NumberInput from '@/components/NumberInput';
 
 export default function Produk() {
   const { can } = useAuth();
@@ -126,12 +127,13 @@ export default function Produk() {
 
   const handleSave = () => {
     if (!name.trim() || !categoryId || !sku.trim()) return;
+    if (!price || Number(price) <= 0) return;
 
     const payload = {
       name: name.trim(),
       sku: sku.trim(),
       categoryId: Number(categoryId),
-      price: Number(price) || 0,
+      price: Number(price),
       hpp: Number(hpp) || 0,
       // Stok hanya dikirim saat tambah produk baru
       ...(!editProduct && { stock: Number(stock) || 0 }),
@@ -430,21 +432,19 @@ export default function Produk() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Harga Jual *</Label>
-                <Input
-                  type="number"
+                <NumberInput
                   value={price}
-                  onChange={e => setPrice(e.target.value)}
-                  placeholder="15000"
+                  onChange={setPrice}
+                  placeholder="15.000"
                   className="h-11"
                 />
               </div>
               <div className="space-y-1.5">
                 <Label>HPP</Label>
-                <Input
-                  type="number"
+                <NumberInput
                   value={hpp}
-                  onChange={e => setHpp(e.target.value)}
-                  placeholder="10000"
+                  onChange={setHpp}
+                  placeholder="10.000"
                   className="h-11"
                 />
               </div>
@@ -538,7 +538,7 @@ export default function Produk() {
             <Button
               className="w-full h-12 text-base font-semibold"
               onClick={handleSave}
-              disabled={!name.trim() || !categoryId || !sku.trim() || isSaving}
+              disabled={!name.trim() || !categoryId || !sku.trim() || !price || Number(price) <= 0 || isSaving}
             >
               {isSaving ? 'Menyimpan...' : editProduct ? 'Simpan Perubahan' : 'Tambah Produk'}
             </Button>
