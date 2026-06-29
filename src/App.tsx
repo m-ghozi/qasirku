@@ -22,6 +22,10 @@ import StockReport from "./pages/StockReport";
 import UsersPage from "./pages/Users";
 import Expenses from "./pages/Expenses";
 import CustomersPage from "./pages/Customers";
+import CategorySettings from "./pages/settings/CategorySettings";
+import PaymentMethodSettings from "./pages/settings/PaymentMethodSettings";
+import ExpenseCategorySettings from "./pages/settings/ExpenseCategorySettings";
+import UnitSettings from "./pages/settings/UnitSettings";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -61,6 +65,10 @@ export default function App() {
                     <Route path="/products" element={<ErrorBoundary><Products /></ErrorBoundary>} />
                     <Route path="/reports" element={<ErrorBoundary><Reports /></ErrorBoundary>} />
                     <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
+                    <Route path="/settings/category" element={<ErrorBoundary><CategorySettings /></ErrorBoundary>} />
+                    <Route path="/settings/payment-method" element={<ErrorBoundary><PaymentMethodSettings /></ErrorBoundary>} />
+                    <Route path="/settings/expense-category" element={<ErrorBoundary><ExpenseCategorySettings /></ErrorBoundary>} />
+                    <Route path="/settings/unit" element={<ErrorBoundary><UnitSettings /></ErrorBoundary>} />
                     <Route path="/supplier" element={<ErrorBoundary><SupplierPage /></ErrorBoundary>} />
                     <Route path="/stock-in" element={<ErrorBoundary><StockInPage /></ErrorBoundary>} />
                     <Route path="/stock-out" element={<ErrorBoundary><StockOutPage /></ErrorBoundary>} />
