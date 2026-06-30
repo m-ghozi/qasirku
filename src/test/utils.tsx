@@ -9,7 +9,7 @@ export function makeQueryClient() {
     defaultOptions: {
       queries: { retry: false, gcTime: 0, staleTime: 0 },
       mutations: { retry: false },
-    },s
+    },
   });
 }
 
