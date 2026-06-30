@@ -13,10 +13,12 @@ api.interceptors.request.use((config) => {
 });
 
 // ── Handle 401 global (token expired / invalid) ──────────────────────────────
+// 401 = token invalid/expired → logout. 403 = token valid tapi user tak punya
+// akses ke endpoint ini → JANGAN logout, biarkan caller handle (toast/redirect).
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401 || err.response?.status === 403) {
+    if (err.response?.status === 401) {
       // Avoid redirect loop on login page
       if (window.location.pathname === '/login') {
         return Promise.reject(err);

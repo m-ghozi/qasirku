@@ -39,7 +39,7 @@ import StoreInfoCard from './settings/StoreInfoCard';
 export default function Pengaturan() {
   const { currentUser, isOwner, can, logout } = useAuth();
   const { canInstall, isInstalled, isIOS, install } = usePWAInstall();
-  const { data: users = [] } = useUsers();
+  const { data: users = [] } = useUsers(isOwner);
   const { data: categories = [] } = useCategories();
   const { data: paymentMethods = [] } = usePaymentMethods(true);
   const { data: expenseCategories = [] } = useExpenseCategories();

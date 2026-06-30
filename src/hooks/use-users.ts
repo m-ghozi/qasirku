@@ -12,10 +12,11 @@ export const USER_KEY = ['users'] as const;
 
 // ── Queries ───────────────────────────────────────────────────────────────────
 
-export function useUsers() {
+export function useUsers(enabled = true) {
   return useQuery({
     queryKey: USER_KEY,
     queryFn: userService.getAll,
+    enabled,
   });
 }
 
