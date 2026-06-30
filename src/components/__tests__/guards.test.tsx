@@ -18,7 +18,7 @@ describe('LockedPage', () => {
   it('staff → pesan minta izin ke pemilik + label permission', () => {
     auth.isOwner = false;
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <LockedPage title="Laporan" permissionLabel="Lihat Laporan" />
       </MemoryRouter>,
     );
@@ -30,7 +30,7 @@ describe('LockedPage', () => {
   it('owner → pesan berbeda (seharusnya punya akses penuh)', () => {
     auth.isOwner = true;
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <LockedPage title="Kasir" />
       </MemoryRouter>,
     );
@@ -41,7 +41,7 @@ describe('LockedPage', () => {
 describe('RequireAuth', () => {
   function renderAt() {
     return render(
-      <MemoryRouter initialEntries={['/']}>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={['/']}>
         <Routes>
           <Route element={<RequireAuth />}>
             <Route path="/" element={<div>halaman terlindungi</div>} />

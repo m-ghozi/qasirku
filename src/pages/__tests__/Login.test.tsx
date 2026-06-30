@@ -14,7 +14,7 @@ vi.mock('react-router-dom', async (orig) => {
 import Login from '@/pages/Login';
 
 function renderLogin() {
-  return render(<MemoryRouter><Login /></MemoryRouter>);
+  return render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><Login /></MemoryRouter>);
 }
 
 /** Lanjut dari step username ke step PIN. */

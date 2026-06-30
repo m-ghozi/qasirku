@@ -30,7 +30,7 @@ vi.mock('@/components/CustomerPicker', () => ({ default: () => null }));
 import Kasir from '@/pages/Cashier';
 
 function renderKasir() {
-  return render(<MemoryRouter><Kasir /></MemoryRouter>);
+  return render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><Kasir /></MemoryRouter>);
 }
 
 beforeEach(() => {
