@@ -685,7 +685,14 @@ export default function Kasir() {
             </div>
           </div>
 
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide mb-3 pb-1 pr-4" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}>
+          <div
+            className="flex gap-2 overflow-x-auto scrollbar-hide mb-3 pb-1 pr-4"
+            style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}
+            onWheel={e => {
+              // ponytail: desktop mouse has no horizontal wheel — map vertical to horizontal
+              if (e.deltaY !== 0) e.currentTarget.scrollLeft += e.deltaY;
+            }}
+          >
             <button
               onClick={() => setFilterCategory('all')}
               className={cn('shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors', filterCategory === 'all' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground')}
