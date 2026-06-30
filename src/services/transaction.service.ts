@@ -63,6 +63,9 @@ export interface CreateTransactionItemPayload {
 
 export interface CreateTransactionPayload {
   items: CreateTransactionItemPayload[];
+  // Idempotency key — dikirim klien, di-unique di backend agar retry (koneksi
+  // jelek) tidak membuat transaksi ganda.
+  receiptNumber?: string;
   // subtotal, discountAmount, total, profit TIDAK perlu dikirim —
   // backend menghitung ulang semua nilai ini dari DB.
   subtotal?: number;

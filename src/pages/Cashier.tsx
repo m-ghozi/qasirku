@@ -59,6 +59,10 @@ export default function Kasir() {
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
 
+  // Idempotency key per checkout attempt — stable across retries so a
+  // lost-response retry on bad connection tidak membuat transaksi ganda.
+  const receiptNumberRef = useRef<string | null>(null);
+
   // Transaction-level discount
   const [txDiscountType, setTxDiscountType] = useState<'percentage' | 'nominal' | null>(null);
   const [txDiscountValue, setTxDiscountValue] = useState('');
@@ -139,6 +143,7 @@ export default function Kasir() {
     setTableNumber('');
     setRemarks('');
     setIsQuickAdding(false);
+    receiptNumberRef.current = null; // sukses → key baru untuk transaksi berikutnya
   };
 
   // ── Cart Operations ────────────────────────────────────────────────────────
@@ -357,7 +362,7 @@ export default function Kasir() {
 
   // ── Checkout ───────────────────────────────────────────────────────────────
   const handleCheckout = () => {
-    if (!paymentMethodId || paidAmount < total) return;
+    if (!paymentMethodId || paidAmount < total || isMutating) return;
 
     if (editingTxId) {
       payHold.mutate(
@@ -380,6 +385,7 @@ export default function Kasir() {
       createTransaction.mutate(
         {
           items: buildItemsPayload(),
+          receiptNumber: (receiptNumberRef.current ??= `TX${Date.now()}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`),
           discountType: txDiscountType,
           discountValue: Number(txDiscountValue) || 0,
           paymentMethodId: Number(paymentMethodId),
@@ -932,10 +938,10 @@ export default function Kasir() {
               <Button
                 className="w-full h-11 sm:h-14 text-sm sm:text-base font-semibold"
                 onClick={handleCheckout}
-                disabled={!paymentMethodId || paidAmount < total}
+                disabled={!paymentMethodId || paidAmount < total || isMutating}
               >
                 <Check className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
-                Konfirmasi Transaksi
+                {isMutating ? 'Memproses...' : 'Konfirmasi Transaksi'}
               </Button>
             </div>
 
