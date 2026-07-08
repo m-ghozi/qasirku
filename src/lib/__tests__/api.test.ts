@@ -50,11 +50,11 @@ describe('response interceptor', () => {
     expect(loc.href).toBe('/login');
   });
 
-  it('401 di /login → TIDAK redirect, token tetap (hindari loop)', async () => {
+  it('401 di /login → hapus token tapi TIDAK redirect (hindari loop)', async () => {
     localStorage.setItem('auth_token', 'x');
     const loc = stubLocation('/login');
     await expect(onRejected({ response: { status: 401 } })).rejects.toBeTruthy();
-    expect(localStorage.getItem('auth_token')).toBe('x');
+    expect(localStorage.getItem('auth_token')).toBeNull();
     expect(loc.href).toBe('');
   });
 

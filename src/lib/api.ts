@@ -19,13 +19,12 @@ api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
-      // Avoid redirect loop on login page
-      if (window.location.pathname === '/login') {
-        return Promise.reject(err);
-      }
+      // Expired/invalid token → always clear it from storage.
       localStorage.removeItem('auth_token');
-      // Redirect to login page
-      window.location.href = '/login';
+      // Avoid redirect loop when already on the login page.
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(err);
   }

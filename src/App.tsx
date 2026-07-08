@@ -47,12 +47,12 @@ export default function App() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <AppThemeSync />
         <TooltipProvider>
           <Toaster />
           <Sonner />
           <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <AuthProvider>
+              <AppThemeSync />
               <Routes>
                 {/* ── Public ─────────────────────────────── */}
                 <Route path="/login" element={<Login />} />

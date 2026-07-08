@@ -4,6 +4,7 @@ import {
   storeSettingService,
   type UpdateStoreSettingPayload,
 } from '@/services/storeSetting.service';
+import { getStoredToken } from '@/lib/auth';
 
 // ── Query key ─────────────────────────────────────────────────────────────────
 
@@ -15,6 +16,9 @@ export function useStoreSetting() {
   return useQuery({
     queryKey: STORE_SETTING_KEY,
     queryFn: storeSettingService.get,
+    // Endpoint butuh auth — jangan fetch saat belum login (mis. halaman /login),
+    // supaya tidak ada 401 di console. Re-fetch otomatis begitu token muncul.
+    enabled: !!getStoredToken(),
     // Setting jarang berubah, cache lebih lama
     staleTime: 5 * 60 * 1000, // 5 menit
   });
