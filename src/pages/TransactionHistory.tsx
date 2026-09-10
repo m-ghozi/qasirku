@@ -4,10 +4,11 @@ import { id as localeId } from 'date-fns/locale';
 import {
   ArrowLeft, Search, Receipt as ReceiptIcon, Calendar,
   ChevronRight, ShoppingBag, CalendarIcon, X, Trash2,
-  ShoppingCart, UserCircle2,
+  ShoppingCart, UserCircle2, Ban,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -24,7 +25,7 @@ import { cn } from '@/lib/utils';
 import ReceiptDialog from '@/components/Receipt';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
-import { useTransactions, useCancelTransaction } from '@/hooks/use-transactions';
+import { useTransactions, useCancelTransaction, useCancelCompletedTransaction } from '@/hooks/use-transactions';
 import { useStoreSetting } from '@/hooks/use-store-setting';
 import type { Transaction, TransactionItem } from '@/services/transaction.service';
 
@@ -40,14 +41,17 @@ export default function TransactionHistory() {
   const [receiptOpen, setReceiptOpen] = useState(false);
   const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined);
   const [dateTo, setDateTo] = useState<Date | undefined>(undefined);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'open'>('all');
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'open' | 'cancelled'>('all');
   const [filterCashier, setFilterCashier] = useState<string>('all');
 
   // ── API hooks ──────────────────────────────────────────────────────────────
   const { data: transactions = [], isLoading } = useTransactions();
   const { data: storeSetting } = useStoreSetting();
   const cancelTransaction = useCancelTransaction();
+  const cancelCompleted = useCancelCompletedTransaction();
+  const cancelPending = cancelTransaction.isPending || cancelCompleted.isPending;
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   const getTxItems = (tx: Transaction): TransactionItem[] => tx.items ?? [];
@@ -57,6 +61,9 @@ export default function TransactionHistory() {
 
   const cashierName = (tx: Transaction): string =>
     tx.createdBy?.name ?? '—';
+
+  const statusLabel = (s: Transaction['status']): string =>
+    s === 'open' ? 'Open Bill' : s === 'cancelled' ? 'Dibatalkan' : 'Lunas';
 
   // Daftar kasir unik dari data transaksi (untuk filter dropdown)
   const cashierList = Array.from(
@@ -117,7 +124,7 @@ export default function TransactionHistory() {
   const dateKeys = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
 
   const filteredTotal = filtered
-    .filter(t => t.status !== 'open')
+    .filter(t => t.status === 'completed')
     .reduce((s, t) => s + t.total, 0);
 
   const hasDateFilter = !!dateFrom || !!dateTo;
@@ -138,19 +145,35 @@ export default function TransactionHistory() {
     setDateTo(undefined);
   };
 
+  const openCancelDialog = () => {
+    setCancelReason('');
+    setCancelDialogOpen(true);
+  };
+
+  // Open bill → hard delete (DELETE). Transaksi lunas → soft-cancel + alasan.
   const handleCancelTransaction = () => {
     if (!selectedTx) return;
-    cancelTransaction.mutate(selectedTx.id, {
-      onSuccess: () => {
-        toast.success('Transaksi berhasil dihapus');
-        setDeleteDialogOpen(false);
-        setDetailOpen(false);
-        setSelectedTx(null);
-      },
-      onError: () => {
-        toast.error('Gagal menghapus transaksi');
-      },
-    });
+    const closeAll = () => {
+      setCancelDialogOpen(false);
+      setDetailOpen(false);
+      setSelectedTx(null);
+      setCancelReason('');
+    };
+
+    if (selectedTx.status === 'open') {
+      cancelTransaction.mutate(selectedTx.id, {
+        onSuccess: () => {
+          toast.success('Bill berhasil dihapus');
+          closeAll();
+        },
+      });
+    } else {
+      // Toast sukses/error sudah ditangani oleh useCancelCompletedTransaction
+      cancelCompleted.mutate(
+        { id: selectedTx.id, reason: cancelReason.trim() || undefined },
+        { onSuccess: closeAll }
+      );
+    }
   };
 
   const rp = (n: number) => `Rp ${n.toLocaleString('id-ID')}`;
@@ -234,11 +257,12 @@ export default function TransactionHistory() {
       </div>
 
       {/* Status filter tabs */}
-      <div className="flex gap-1.5 mb-4">
+      <div className="flex flex-wrap gap-1.5 mb-4">
         {([
           { value: 'all', label: 'Semua' },
           { value: 'open', label: 'Open Bill' },
           { value: 'completed', label: 'Lunas' },
+          { value: 'cancelled', label: 'Dibatalkan' },
         ] as const).map(tab => (
           <button
             key={tab.value}
@@ -329,13 +353,15 @@ export default function TransactionHistory() {
                     <CardContent className="p-3 flex items-center gap-3">
                       <div className={cn(
                         'w-9 h-9 rounded-lg flex items-center justify-center shrink-0',
-                        tx.status === 'open'
-                          ? 'bg-warning/10 text-warning'
-                          : 'bg-primary/10 text-primary'
+                        tx.status === 'open' && 'bg-warning/10 text-warning',
+                        tx.status === 'completed' && 'bg-primary/10 text-primary',
+                        tx.status === 'cancelled' && 'bg-destructive/10 text-destructive'
                       )}>
                         {tx.status === 'open'
                           ? <ShoppingCart className="w-4 h-4" />
-                          : <ReceiptIcon className="w-4 h-4" />}
+                          : tx.status === 'cancelled'
+                            ? <Ban className="w-4 h-4" />
+                            : <ReceiptIcon className="w-4 h-4" />}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between">
@@ -347,6 +373,10 @@ export default function TransactionHistory() {
                               <Badge variant="secondary" className="text-[9px] h-4 px-1.5 bg-warning/20 text-warning border-warning/30">
                                 Open
                               </Badge>
+                            ) : tx.status === 'cancelled' ? (
+                              <Badge variant="secondary" className="text-[9px] h-4 px-1.5 bg-destructive/20 text-destructive border-destructive/30">
+                                Dibatalkan
+                              </Badge>
                             ) : (
                               <Badge variant="secondary" className="text-[9px] h-4 px-1.5 bg-success/20 text-success border-success/30">
                                 Lunas
@@ -357,7 +387,12 @@ export default function TransactionHistory() {
                             {format(new Date(tx.date), 'HH:mm')}
                           </p>
                         </div>
-                        <p className="text-sm font-bold text-primary">{rp(tx.total)}</p>
+                        <p className={cn(
+                          'text-sm font-bold',
+                          tx.status === 'cancelled' ? 'text-muted-foreground line-through' : 'text-primary'
+                        )}>
+                          {rp(tx.total)}
+                        </p>
                         <div className="flex items-center gap-2 text-[10px] text-muted-foreground truncate">
                           {tx.createdBy && (
                             <span className="flex items-center gap-0.5">
@@ -400,9 +435,11 @@ export default function TransactionHistory() {
                   <span className="text-muted-foreground">Status</span>
                   <span className={cn(
                     'font-semibold',
-                    selectedTx.status === 'open' ? 'text-warning' : 'text-success'
+                    selectedTx.status === 'open' && 'text-warning',
+                    selectedTx.status === 'completed' && 'text-success',
+                    selectedTx.status === 'cancelled' && 'text-destructive'
                   )}>
-                    {selectedTx.status === 'open' ? 'Open Bill' : 'Lunas'}
+                    {statusLabel(selectedTx.status)}
                   </span>
                 </div>
                 <div className="flex justify-between text-xs">
@@ -417,7 +454,7 @@ export default function TransactionHistory() {
                 </div>
                 <div className="flex justify-between text-xs">
                   <span className="text-muted-foreground">Pembayaran</span>
-                  <span>{selectedTx.status === 'open' ? '-' : getPaymentName(selectedTx)}</span>
+                  <span>{selectedTx.status === 'completed' ? getPaymentName(selectedTx) : '-'}</span>
                 </div>
                 {selectedTx.createdBy && (
                   <div className="flex justify-between text-xs">
@@ -447,6 +484,33 @@ export default function TransactionHistory() {
                   </div>
                 )}
               </div>
+
+              {/* Jejak pembatalan — tampil hanya untuk transaksi yang dibatalkan */}
+              {selectedTx.status === 'cancelled' && (
+                <div className="rounded-xl bg-destructive/5 border border-destructive/20 p-3 space-y-1">
+                  <p className="text-xs font-semibold text-destructive flex items-center gap-1.5">
+                    <Ban className="w-3.5 h-3.5" /> Transaksi Dibatalkan
+                  </p>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Alasan</span>
+                    <span className="text-right max-w-[60%]">{selectedTx.cancelReason || '—'}</span>
+                  </div>
+                  {selectedTx.cancelledBy && (
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground">Dibatalkan oleh</span>
+                      <span>{selectedTx.cancelledBy.name}</span>
+                    </div>
+                  )}
+                  {selectedTx.cancelledAt && (
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground">Waktu</span>
+                      <span>
+                        {format(new Date(selectedTx.cancelledAt), 'dd MMM yyyy, HH:mm', { locale: localeId })}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Items */}
               <div className="space-y-2">
@@ -484,7 +548,7 @@ export default function TransactionHistory() {
                   <span>Total</span>
                   <span className="text-primary">{rp(selectedTx.total)}</span>
                 </div>
-                {selectedTx.status !== 'open' ? (
+                {selectedTx.status === 'completed' ? (
                   <>
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Bayar</span>
@@ -499,6 +563,10 @@ export default function TransactionHistory() {
                       <span className="text-success font-medium">{rp(selectedTx.profit)}</span>
                     </div>
                   </>
+                ) : selectedTx.status === 'cancelled' ? (
+                  <p className="text-xs text-destructive italic">
+                    Transaksi dibatalkan — tidak dihitung sebagai penjualan
+                  </p>
                 ) : (
                   <p className="text-xs text-warning italic">Bill belum dibayar</p>
                 )}
@@ -520,16 +588,20 @@ export default function TransactionHistory() {
                 </Button>
               )}
 
-              <Button
-                variant="outline"
-                className="w-full h-11 text-destructive border-destructive/30 hover:bg-destructive/5"
-                onClick={() => setDeleteDialogOpen(true)}
-                disabled={!can('delete_transaction') || cancelTransaction.isPending}
-                title={!can('delete_transaction') ? 'Anda tidak punya akses untuk menghapus transaksi' : undefined}
-              >
-                <Trash2 className="w-4 h-4 mr-2" />
-                Hapus Transaksi
-              </Button>
+              {selectedTx.status !== 'cancelled' && (
+                <Button
+                  variant="outline"
+                  className="w-full h-11 text-destructive border-destructive/30 hover:bg-destructive/5"
+                  onClick={openCancelDialog}
+                  disabled={!can('delete_transaction') || cancelPending}
+                  title={!can('delete_transaction') ? 'Anda tidak punya akses untuk membatalkan transaksi' : undefined}
+                >
+                  {selectedTx.status === 'open'
+                    ? <Trash2 className="w-4 h-4 mr-2" />
+                    : <Ban className="w-4 h-4 mr-2" />}
+                  {selectedTx.status === 'open' ? 'Hapus Bill' : 'Batalkan Transaksi'}
+                </Button>
+              )}
             </div>
           )}
         </SheetContent>
@@ -548,32 +620,63 @@ export default function TransactionHistory() {
         />
       )}
 
-      {/* Delete Confirmation */}
+      {/* Konfirmasi Hapus (open bill) / Batalkan (transaksi lunas) */}
       <AlertDialog
-        open={deleteDialogOpen}
-        onOpenChange={open => { if (!open) setDeleteDialogOpen(false); }}
+        open={cancelDialogOpen}
+        onOpenChange={open => { if (!open) { setCancelDialogOpen(false); setCancelReason(''); } }}
       >
         <AlertDialogContent className="max-w-[90vw] rounded-xl">
           <AlertDialogHeader>
-            <AlertDialogTitle>Hapus Transaksi?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {selectedTx?.status === 'open' ? 'Hapus Bill?' : 'Batalkan Transaksi?'}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Transaksi{' '}
-              <span className="font-mono font-semibold">{selectedTx?.receiptNumber}</span>{' '}
-              senilai{' '}
-              <span className="font-semibold">
-                Rp {selectedTx?.total.toLocaleString('id-ID')}
-              </span>{' '}
-              akan dihapus. Stok produk akan dikembalikan secara otomatis.
+              {selectedTx?.status === 'open' ? (
+                <>
+                  Bill{' '}
+                  <span className="font-mono font-semibold">{selectedTx?.receiptNumber}</span>{' '}
+                  akan dihapus permanen.
+                </>
+              ) : (
+                <>
+                  Transaksi{' '}
+                  <span className="font-mono font-semibold">{selectedTx?.receiptNumber}</span>{' '}
+                  senilai{' '}
+                  <span className="font-semibold">
+                    Rp {selectedTx?.total.toLocaleString('id-ID')}
+                  </span>{' '}
+                  akan dibatalkan. Stok produk dikembalikan dan transaksi tetap tersimpan di riwayat.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
+
+          {selectedTx?.status === 'completed' && (
+            <div className="space-y-1.5">
+              <label htmlFor="cancel-reason" className="text-xs font-medium text-muted-foreground">
+                Alasan pembatalan (opsional)
+              </label>
+              <Textarea
+                id="cancel-reason"
+                value={cancelReason}
+                onChange={e => setCancelReason(e.target.value)}
+                placeholder="Contoh: salah input, pelanggan batal..."
+                rows={3}
+                className="text-sm"
+              />
+            </div>
+          )}
+
           <AlertDialogFooter>
             <AlertDialogCancel>Batal</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleCancelTransaction}
-              disabled={cancelTransaction.isPending}
+              disabled={cancelPending}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {cancelTransaction.isPending ? 'Menghapus…' : 'Hapus'}
+              {cancelPending
+                ? 'Memproses…'
+                : selectedTx?.status === 'open' ? 'Hapus' : 'Batalkan'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
