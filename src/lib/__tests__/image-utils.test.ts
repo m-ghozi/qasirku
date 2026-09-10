@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { compressImage } from '@/lib/image-utils';
+import { compressImage, downscaleToJpeg } from '@/lib/image-utils';
 
 // jsdom tak punya canvas asli — kita stub HTMLCanvasElement + Image agar
 // menguji LOGIKA scaling (proporsi & batas maxSize), bukan encoding JPEG.
@@ -59,5 +59,27 @@ describe('compressImage', () => {
   it('Image.onerror → reject', async () => {
     stubImage(100, 100, true);
     await expect(compressImage(makeFile())).rejects.toThrow('Failed to load image');
+  });
+});
+
+describe('downscaleToJpeg', () => {
+  it('memperkecil sumber video proporsional & encode JPEG', () => {
+    let captured = { w: 0, h: 0 };
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+      captured = { w: this.width, h: this.height };
+      return { drawImage: vi.fn() } as unknown as CanvasRenderingContext2D;
+    });
+
+    // Frame kamera 1080x1920 (portrait) → sisi terpanjang jadi 200
+    const res = downscaleToJpeg({} as CanvasImageSource, 1080, 1920, 200);
+    expect(res).toMatch(/^data:image\/jpeg/);
+    expect(captured).toEqual({ w: 113, h: 200 });
+  });
+
+  it('melempar error bila canvas context tidak tersedia', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    expect(() => downscaleToJpeg({} as CanvasImageSource, 100, 100)).toThrow(
+      'Canvas context not available',
+    );
   });
 });

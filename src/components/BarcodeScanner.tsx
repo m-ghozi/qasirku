@@ -1,9 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
-import { X, Camera, CameraOff, Flashlight, AlertCircle, ExternalLink } from 'lucide-react';
+import { X, Camera, CameraOff, Flashlight, AlertCircle, ExternalLink, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import {
+  isStandalonePWA,
+  detectCameraErrorName,
+  cameraErrorMessage,
+  cameraDeniedMessage,
+  cameraUnsupportedMessage,
+  listVideoInputDevices,
+  pickCameraDeviceId,
+  type FacingMode,
+  type VideoInputDevice,
+} from '@/lib/camera';
 
 interface BarcodeScannerProps {
   open: boolean;
@@ -13,52 +24,30 @@ interface BarcodeScannerProps {
 
 type PermissionStatus = 'checking' | 'prompt' | 'granted' | 'denied' | 'unsupported';
 
-/**
- * Detect the underlying error name from any error-like value.
- * html5-qrcode often wraps the original DOMException in a string,
- * so we have to look at both `error.name` and the message text.
- */
-function detectErrorName(err: unknown): string {
-  if (err instanceof Error && err.name) {
-    // DOMException has a proper `name` like "NotAllowedError"
-    if (err.name !== 'Error') return err.name;
-  }
-  const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-  const known = [
-    'NotAllowedError',
-    'NotFoundError',
-    'NotReadableError',
-    'OverconstrainedError',
-    'SecurityError',
-    'AbortError',
-    'TypeError',
-  ];
-  for (const name of known) {
-    if (msg.includes(name)) return name;
-  }
-  return 'UnknownError';
-}
-
-function isStandalonePWA(): boolean {
-  if (typeof window === 'undefined') return false;
-  // iOS Safari
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  if ((window.navigator as any).standalone) return true;
-  // Other browsers
-  return window.matchMedia?.('(display-mode: standalone)').matches ?? false;
-}
-
 export default function BarcodeScanner({ open, onClose, onScan }: BarcodeScannerProps) {
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const scanningRef = useRef(false);
+  // Promise stop() terakhir, supaya scanner baru menunggu scanner lama benar-benar berhenti
+  const stopPromiseRef = useRef<Promise<void>>(Promise.resolve());
+  // deviceId kamera yang sedang dipakai — dipakai tombol ganti kamera untuk tahu
+  // harus berpindah dari kamera mana.
+  const deviceIdRef = useRef<string | null>(null);
   const [hasFlash, setHasFlash] = useState(false);
   const [flashOn, setFlashOn] = useState(false);
   const [permission, setPermission] = useState<PermissionStatus>('checking');
   const [errorState, setErrorState] = useState<string | null>(null);
+  // Kamera aktif; tombol ganti kamera hanya muncul bila perangkat punya >1 kamera
+  const [facingMode, setFacingMode] = useState<FacingMode>('environment');
+  const [canFlip, setCanFlip] = useState(false);
   const scannerId = 'barcode-scanner';
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      // Dialog ditutup → tidak ada kamera yang jalan, jadi catatannya direset
+      // agar pemilihan kamera saat dibuka lagi tidak menganggap yang lama aktif.
+      deviceIdRef.current = null;
+      return;
+    }
 
     let cancelled = false;
     setPermission('checking');
@@ -79,9 +68,7 @@ export default function BarcodeScanner({ open, onClose, onScan }: BarcodeScanner
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         if (cancelled) return;
         setPermission('unsupported');
-        setErrorState(
-          'Browser tidak mendukung akses kamera. Coba update aplikasi atau gunakan browser lain.',
-        );
+        setErrorState(cameraUnsupportedMessage());
         return;
       }
 
@@ -94,11 +81,7 @@ export default function BarcodeScanner({ open, onClose, onScan }: BarcodeScanner
           if (cancelled) return;
           if (result.state === 'denied') {
             setPermission('denied');
-            setErrorState(
-              isStandalonePWA()
-                ? 'Izin kamera ditolak. Buka Settings perangkat > Apps > QasirKu > Permissions, lalu aktifkan Camera.'
-                : 'Izin kamera ditolak. Klik ikon gembok di address bar dan izinkan akses kamera.',
-            );
+            setErrorState(cameraDeniedMessage());
             return;
           }
         }
@@ -112,7 +95,8 @@ export default function BarcodeScanner({ open, onClose, onScan }: BarcodeScanner
       let preflightStream: MediaStream | null = null;
       try {
         preflightStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' } },
+          // `ideal` supaya perangkat tanpa kamera yang diminta tetap dapat stream
+          video: { facingMode: { ideal: facingMode } },
           audio: false,
         });
       } catch (err: unknown) {
@@ -120,9 +104,9 @@ export default function BarcodeScanner({ open, onClose, onScan }: BarcodeScanner
           preflightStream?.getTracks().forEach(t => t.stop());
           return;
         }
-        const name = detectErrorName(err);
+        const name = detectCameraErrorName(err);
 
-        // Retry without facingMode constraint when device has no rear camera
+        // Retry tanpa constraint facingMode bila perangkat tak punya kamera tsb
         if (name === 'OverconstrainedError' || name === 'NotFoundError') {
           try {
             preflightStream = await navigator.mediaDevices.getUserMedia({
@@ -131,7 +115,7 @@ export default function BarcodeScanner({ open, onClose, onScan }: BarcodeScanner
             });
           } catch (err2: unknown) {
             if (cancelled) return;
-            handlePreflightError(detectErrorName(err2));
+            handlePreflightError(detectCameraErrorName(err2));
             return;
           }
         } else {
@@ -140,8 +124,27 @@ export default function BarcodeScanner({ open, onClose, onScan }: BarcodeScanner
         }
       }
 
+      // Daftar kamera diambil selagi stream preflight masih hidup — label kamera
+      // ("facing front/back") baru terisi setelah izin benar-benar diberikan.
+      let devices: VideoInputDevice[] = [];
+      try {
+        devices = await listVideoInputDevices();
+      } catch {
+        // enumerateDevices tidak tersedia/diblokir → andalkan facingMode saja
+      }
+
       // Stop preflight stream — html5-qrcode will create its own.
       preflightStream?.getTracks().forEach(t => t.stop());
+      if (cancelled) return;
+
+      setCanFlip(devices.length > 1);
+
+      // Kamera yang sedang jalan sebelum restart (mis. saat tombol ganti kamera ditekan)
+      let targetDeviceId = pickCameraDeviceId(devices, facingMode, deviceIdRef.current);
+
+      // Tunggu scanner sebelumnya benar-benar berhenti (mis. saat ganti kamera)
+      // agar tidak berebut elemen #barcode-scanner.
+      await stopPromiseRef.current;
       if (cancelled) return;
 
       // 4. Start html5-qrcode now that permission is confirmed.
@@ -165,6 +168,9 @@ export default function BarcodeScanner({ open, onClose, onScan }: BarcodeScanner
         scannerRef.current = scanner;
         scanningRef.current = true;
 
+        // NB: html5-qrcode hanya menerima `facingMode` sebagai string polos atau
+        // `{ exact: ... }`. Bentuk `{ ideal: ... }` ditolak dengan string error
+        // (bukan Error), sehingga tampak sebagai "UnknownError".
         const startWith = async (constraints: MediaTrackConstraints | { facingMode: string }) => {
           await scanner.start(
             constraints,
@@ -178,14 +184,26 @@ export default function BarcodeScanner({ open, onClose, onScan }: BarcodeScanner
         };
 
         try {
-          await startWith({ facingMode: 'environment' });
+          // deviceId ({ exact }) paling andal untuk memilih kamera depan/belakang;
+          // facingMode non-exact sering diabaikan browser sehingga tombol ganti
+          // kamera tampak tidak berfungsi. Bila daftar kamera tak tersedia,
+          // jatuh ke facingMode string yang didukung html5-qrcode.
+          await startWith(
+            targetDeviceId
+              ? ({ deviceId: { exact: targetDeviceId } } as MediaTrackConstraints)
+              : { facingMode: facingMode },
+          );
         } catch (err: unknown) {
-          const name = detectErrorName(err);
+          const name = detectCameraErrorName(err);
           if (name === 'OverconstrainedError' || name === 'NotFoundError') {
-            // Fallback: list cameras and use the first available one.
-            const cameras = await Html5Qrcode.getCameras();
-            if (cameras.length === 0) throw err;
-            await startWith({ deviceId: cameras[0].id } as MediaTrackConstraints);
+            // deviceId target tidak lagi valid → pakai kamera lain yang tersedia
+            const fallback =
+              devices.find(d => d.deviceId !== targetDeviceId) ?? devices[0];
+            if (!fallback) throw err;
+            targetDeviceId = fallback.deviceId;
+            await startWith({
+              deviceId: { exact: fallback.deviceId },
+            } as MediaTrackConstraints);
           } else {
             throw err;
           }
@@ -194,6 +212,16 @@ export default function BarcodeScanner({ open, onClose, onScan }: BarcodeScanner
         if (cancelled) {
           void handleStop();
           return;
+        }
+
+        // Catat kamera yang benar-benar dipakai (bisa berbeda dari target bila
+        // browser mengabaikan constraint) agar tombol ganti kamera tahu harus
+        // berpindah dari kamera mana.
+        try {
+          deviceIdRef.current =
+            scanner.getRunningTrackSettings()?.deviceId ?? targetDeviceId;
+        } catch {
+          deviceIdRef.current = targetDeviceId;
         }
 
         try {
@@ -205,35 +233,13 @@ export default function BarcodeScanner({ open, onClose, onScan }: BarcodeScanner
       } catch (err: unknown) {
         console.error('Scanner error:', err);
         if (cancelled) return;
-        handleStartError(detectErrorName(err));
+        handleStartError(detectCameraErrorName(err));
       }
     };
 
     const handlePreflightError = (name: string) => {
       setPermission('denied');
-      switch (name) {
-        case 'NotAllowedError':
-          setErrorState(
-            isStandalonePWA()
-              ? 'Izin kamera ditolak. Buka Settings perangkat > Apps > QasirKu > Permissions, lalu aktifkan Camera.'
-              : 'Izin kamera ditolak. Mohon izinkan akses kamera lalu coba lagi.',
-          );
-          break;
-        case 'NotFoundError':
-          setErrorState('Kamera tidak ditemukan di perangkat ini.');
-          break;
-        case 'NotReadableError':
-          setErrorState('Kamera sedang digunakan aplikasi lain. Tutup aplikasi lain lalu coba lagi.');
-          break;
-        case 'OverconstrainedError':
-          setErrorState('Kamera tidak mendukung konfigurasi yang diminta.');
-          break;
-        case 'SecurityError':
-          setErrorState('Akses kamera diblokir karena alasan keamanan. Pastikan aplikasi diakses via HTTPS.');
-          break;
-        default:
-          setErrorState(`Gagal mengakses kamera (${name}).`);
-      }
+      setErrorState(cameraErrorMessage(name));
     };
 
     const handleStartError = (name: string) => {
@@ -245,10 +251,10 @@ export default function BarcodeScanner({ open, onClose, onScan }: BarcodeScanner
 
     return () => {
       cancelled = true;
-      void handleStop();
+      stopPromiseRef.current = handleStop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, facingMode]);
 
   const handleStop = async () => {
     if (scannerRef.current && scanningRef.current) {
@@ -281,6 +287,11 @@ export default function BarcodeScanner({ open, onClose, onScan }: BarcodeScanner
   const handleClose = async () => {
     await handleStop();
     onClose();
+  };
+
+  /** Tukar kamera belakang <-> depan. Effect akan restart scanner dengan facingMode baru. */
+  const toggleCamera = () => {
+    setFacingMode(mode => (mode === 'environment' ? 'user' : 'environment'));
   };
 
   const showError = permission === 'denied' || permission === 'unsupported';
@@ -320,6 +331,18 @@ export default function BarcodeScanner({ open, onClose, onScan }: BarcodeScanner
           )}
 
           <div className="absolute top-3 right-3 flex gap-2">
+            {canFlip && !showError && (
+              <Button
+                variant="secondary"
+                size="icon"
+                className="h-10 w-10 rounded-full shadow-lg"
+                title="Ganti kamera depan/belakang"
+                aria-label="Ganti kamera depan/belakang"
+                onClick={toggleCamera}
+              >
+                <RefreshCw className="w-5 h-5" />
+              </Button>
+            )}
             {hasFlash && (
               <Button
                 variant="secondary"
