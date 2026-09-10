@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo } from 'react';
-import { Plus, Search, Edit2, Trash2, Package as PackageIcon, Camera, X, Copy, ScanLine } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Package as PackageIcon, Camera, X, Copy, ScanLine, Image as ImageIcon } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,7 @@ import { useProducts, useCreateProduct, useUpdateProduct, useDeleteProduct } fro
 import { useCategories } from '@/hooks/use-categories';
 import { useUnits } from '@/hooks/use-units';
 import BarcodeScanner from '@/components/BarcodeScanner';
+import CameraCapture from '@/components/CameraCapture';
 import type { Product } from '@/services/product.service';
 import NumberInput from '@/components/NumberInput';
 
@@ -42,6 +43,9 @@ export default function Produk() {
   const [description, setDescription] = useState('');
   const [photo, setPhoto] = useState<string | undefined>(undefined);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Dialog kamera in-app untuk memotret produk langsung.
+  const [cameraOpen, setCameraOpen] = useState(false);
 
   // Field tujuan hasil scan kamera: SKU atau Barcode.
   const [scanTarget, setScanTarget] = useState<'sku' | 'barcode' | null>(null);
@@ -321,18 +325,20 @@ export default function Produk() {
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-[95vw] rounded-xl max-h-[90vh] overflow-y-auto">
+        {/* max-h pakai dvh (bukan vh) supaya di mobile tak melebihi area
+            yang benar-benar terlihat — tepi atas kartu & tombol X tetap aman */}
+        <DialogContent className="max-w-[95vw] rounded-xl max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editProduct ? 'Edit Produk' : 'Tambah Produk'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 mt-2">
-            {/* Photo picker */}
+            {/* Photo picker — kamera in-app (utama) atau galeri */}
             <div className="space-y-1.5">
               <Label>Foto Produk</Label>
               <div className="flex items-center gap-3">
                 <div
-                  className="w-20 h-20 rounded-xl bg-muted border-2 border-dashed border-border flex items-center justify-center overflow-hidden cursor-pointer hover:border-primary/50 transition-colors"
-                  onClick={() => fileInputRef.current?.click()}
+                  className="w-20 h-20 rounded-xl bg-muted border-2 border-dashed border-border flex items-center justify-center overflow-hidden cursor-pointer hover:border-primary/50 transition-colors shrink-0"
+                  onClick={() => setCameraOpen(true)}
                 >
                   {photo ? (
                     <img src={photo} alt="Preview" className="w-full h-full object-cover" />
@@ -340,23 +346,36 @@ export default function Produk() {
                     <Camera className="w-6 h-6 text-muted-foreground/50" />
                   )}
                 </div>
+                {/* justify-start: ikon rata kiri. Lebar tombol tidak dipaksa
+                    memenuhi container — flex-col men-stretch ke label terpanjang,
+                    jadi semua tombol tetap selebar sama */}
                 <div className="flex flex-col gap-1.5">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-8 text-xs gap-1.5"
-                    onClick={() => fileInputRef.current?.click()}
+                    className="h-8 w-full text-xs gap-1.5 justify-start"
+                    onClick={() => setCameraOpen(true)}
                   >
                     <Camera className="w-3.5 h-3.5" />
-                    {photo ? 'Ganti Foto' : 'Pilih Foto'}
+                    {photo ? 'Ganti Foto' : 'Ambil Foto'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-full text-xs gap-1.5 justify-start"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <ImageIcon className="w-3.5 h-3.5" />
+                    Galeri
                   </Button>
                   {photo && (
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="h-8 text-xs text-destructive gap-1.5"
+                      className="h-8 w-full text-xs text-destructive gap-1.5 justify-start"
                       onClick={() => setPhoto(undefined)}
                     >
                       <X className="w-3.5 h-3.5" />
@@ -566,6 +585,17 @@ export default function Produk() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Kamera in-app untuk foto produk */}
+      <CameraCapture
+        open={cameraOpen}
+        onClose={() => setCameraOpen(false)}
+        onCapture={photoDataUrl => {
+          setPhoto(photoDataUrl);
+          setCameraOpen(false);
+        }}
+        onPickGallery={() => fileInputRef.current?.click()}
+      />
 
       {/* Scanner kamera untuk SKU / Barcode */}
       <BarcodeScanner
