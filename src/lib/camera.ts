@@ -56,6 +56,53 @@ export function pickCameraDeviceId(
   return chosen.deviceId;
 }
 
+/**
+ * Benar bila kamera yang sedang jalan menghadap pengguna (kamera depan),
+ * sehingga preview-nya perlu di-mirror supaya terasa seperti selfie.
+ *
+ * Patokan utamanya `facingMode` dari track yang benar-benar aktif
+ * (`track.getSettings().facingMode`), bukan arah yang diminta: di perangkat
+ * berkamera tunggal — webcam laptop, sebagian WebView — permintaan
+ * `environment` tetap dipenuhi kamera depan, jadi preview tidak akan pernah
+ * ter-mirror kalau kita cuma percaya nilai yang diminta.
+ *
+ * @param trackFacingMode `facingMode` dari track video yang aktif (opsional;
+ *                        sebagian browser/perangkat tidak melaporkannya).
+ * @param requestedFacingMode Arah yang sedang diminta UI (state tombol ganti kamera).
+ * @param devices Daftar kamera yang terdeteksi, dipakai saat arah tak dilaporkan.
+ * @param activeDeviceId deviceId kamera yang sedang jalan, untuk membaca labelnya.
+ */
+export function isFrontFacingCamera(
+  trackFacingMode: string | null | undefined,
+  requestedFacingMode: FacingMode,
+  devices: VideoInputDevice[] = [],
+  activeDeviceId?: string | null,
+): boolean {
+  if (trackFacingMode === 'user') return true;
+  if (trackFacingMode === 'environment') return false;
+
+  // Arah tak dilaporkan. Label kamera yang sedang jalan adalah petunjuk
+  // berikutnya — laptop Windows Hello misalnya punya dua kamera (RGB + IR),
+  // jadi "cuma ada satu kamera" tidak bisa diandalkan.
+  const active = activeDeviceId ? devices.find(d => d.deviceId === activeDeviceId) : undefined;
+  const label = active?.label ?? (devices.length === 1 ? devices[0].label : '');
+  if (label) {
+    if (FRONT_CAMERA_RE.test(label)) return true;
+    if (BACK_CAMERA_RE.test(label)) return false;
+
+    // Label aktif tidak menyebut arah (mis. "Integrated Camera") dan di daftar
+    // tidak ada satu pun kamera berlabel belakang → perangkat ini tidak punya
+    // kamera belakang, jadi yang jalan pasti menghadap pengguna. Ini yang
+    // menangkap laptop dengan dua kamera: RGB + IR Windows Hello.
+    if (!devices.some(d => BACK_CAMERA_RE.test(d.label))) return true;
+  }
+
+  // Label pun tak informatif: kamera tunggal lazimnya menghadap pengguna,
+  // sisanya ikuti arah yang diminta.
+  if (devices.length === 1) return true;
+  return requestedFacingMode === 'user';
+}
+
 /** Benar bila app berjalan sebagai PWA standalone (iOS Safari / Android). */
 export function isStandalonePWA(): boolean {
   if (typeof window === 'undefined') return false;
