@@ -138,9 +138,10 @@ export default function Produk() {
       // Stok hanya dikirim saat tambah produk baru
       ...(!editProduct && { stock: Number(stock) || 0 }),
       unit: unit.trim() || defaultUnit,
-      description: description.trim() || undefined,
-      barcode: barcode.trim() || undefined,
-      photo: photo || undefined,
+      // Kirim null (bukan undefined) agar kolom benar-benar dikosongkan di backend
+      description: description.trim() || null,
+      barcode: barcode.trim() || null,
+      photo: photo ?? null,
     };
 
     if (editProduct?.id) {

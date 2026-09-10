@@ -35,9 +35,10 @@ export interface CreateProductPayload {
   hpp: number;
   stock?: number;
   unit: string;
-  description?: string;
-  photo?: string;
-  barcode?: string;
+  // null dikirim eksplisit saat dikosongkan agar backend ikut mengosongkan kolomnya
+  description?: string | null;
+  photo?: string | null;
+  barcode?: string | null;
 }
 
 export type UpdateProductPayload = Partial<CreateProductPayload>;
