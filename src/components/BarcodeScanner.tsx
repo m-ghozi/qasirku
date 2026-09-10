@@ -298,7 +298,11 @@ export default function BarcodeScanner({ open, onClose, onScan }: BarcodeScanner
 
   return (
     <Dialog open={open} onOpenChange={v => v || handleClose()}>
-      <DialogContent className="max-w-[95vw] rounded-xl p-0 overflow-hidden">
+      {/* max-w-[95vw] hanya untuk layar sempit — tanpa breakpoint, `max-w-lg`
+          bawaan ikut ter-override sehingga di desktop dialog jadi ~95vw lebar
+          dan video aspect-[4/3] jauh melebihi tinggi layar (terpotong).
+          max-h + overflow-y-auto sebagai jaring pengaman di layar pendek. */}
+      <DialogContent className="max-w-[95vw] sm:max-w-md rounded-xl p-0 overflow-x-hidden overflow-y-auto max-h-[92dvh]">
         <DialogHeader className="p-4 pb-0">
           <DialogTitle className="flex items-center gap-2">
             <Camera className="w-5 h-5" />
