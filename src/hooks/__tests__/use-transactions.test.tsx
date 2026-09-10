@@ -6,6 +6,7 @@ const transactionService = vi.hoisted(() => ({
   create: vi.fn(),
   payHold: vi.fn(),
   cancel: vi.fn(),
+  cancelCompleted: vi.fn(),
 }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 
@@ -16,6 +17,7 @@ import {
   useTransactions,
   useOpenBills,
   useCreateTransaction,
+  useCancelCompletedTransaction,
 } from '@/hooks/use-transactions';
 import { makeHookWrapper, makeQueryClient } from '@/test/utils';
 
@@ -72,5 +74,35 @@ describe('useCreateTransaction', () => {
       await result.current.mutateAsync({ items: [] }).catch(() => {});
     });
     expect(toast.error).toHaveBeenCalledWith('Stok habis');
+  });
+});
+
+describe('useCancelCompletedTransaction', () => {
+  it('sukses → toast sukses + invalidate transactions & products', async () => {
+    const qc = makeQueryClient();
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+    transactionService.cancelCompleted.mockResolvedValue({ receiptNumber: 'TX11', status: 'cancelled' });
+    const { result } = renderHook(() => useCancelCompletedTransaction(), {
+      wrapper: makeHookWrapper(qc),
+    });
+    await act(async () => {
+      await result.current.mutateAsync({ id: 1, reason: 'salah input' });
+    });
+    expect(transactionService.cancelCompleted).toHaveBeenCalledWith(1, 'salah input');
+    expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('TX11'));
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it('error → toast pesan dari backend', async () => {
+    transactionService.cancelCompleted.mockRejectedValue({
+      response: { data: { message: 'Transaksi sudah dibatalkan' } },
+    });
+    const { result } = renderHook(() => useCancelCompletedTransaction(), {
+      wrapper: makeHookWrapper(),
+    });
+    await act(async () => {
+      await result.current.mutateAsync({ id: 1 }).catch(() => {});
+    });
+    expect(toast.error).toHaveBeenCalledWith('Transaksi sudah dibatalkan');
   });
 });

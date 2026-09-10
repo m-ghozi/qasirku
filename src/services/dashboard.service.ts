@@ -15,7 +15,7 @@ export interface DashboardTransaction {
   paymentAmount: number;
   change: number;
   profit: number;
-  status: 'open' | 'completed';
+  status: 'open' | 'completed' | 'cancelled';
   date: string;                // ISO string
   createdById: number;
   createdBy: { name: string };

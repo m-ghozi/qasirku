@@ -46,6 +46,12 @@ export interface Transaction {
   items?: TransactionItem[];
   createdBy?: { id: number; name: string; username: string };
   paymentMethod?: { name: string; category: string };
+
+  // ── Jejak audit pembatalan (diisi backend saat status = 'cancelled') ──────
+  cancelledById?: number | null;
+  cancelledAt?: string | null;
+  cancelReason?: string | null;
+  cancelledBy?: { id: number; name: string } | null;
 }
 
 // ── Payload untuk buat transaksi baru ────────────────────────────────────────
@@ -143,7 +149,18 @@ export const transactionService = {
     return tx;
   },
 
+  /** Batalkan open bill / hold bill (hard delete). Khusus status 'open'. */
   cancel: async (id: number): Promise<void> => {
     await api.delete(`/transactions/${id}`);
+  },
+
+  /**
+   * Batalkan transaksi yang sudah selesai (soft-cancel).
+   * Backend mengubah status → 'cancelled', mengembalikan stok, dan menyimpan
+   * jejak audit (siapa, kapan, alasan). Riwayat tetap tersimpan.
+   */
+  cancelCompleted: async (id: number, reason?: string): Promise<Transaction> => {
+    const { data } = await api.post(`/transactions/${id}/cancel`, { reason });
+    return normalizeTransaction(data.data);
   },
 };

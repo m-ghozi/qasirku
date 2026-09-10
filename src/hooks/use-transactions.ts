@@ -88,3 +88,25 @@ export function useCancelTransaction() {
     },
   });
 }
+
+/**
+ * Batalkan transaksi yang sudah lunas (soft-cancel).
+ * Berbeda dari useCancelTransaction (DELETE, khusus open bill): transaksi tetap
+ * tersimpan dengan status 'cancelled' + alasan, dan stok dikembalikan.
+ */
+export function useCancelCompletedTransaction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason?: string }) =>
+      transactionService.cancelCompleted(id, reason),
+    onSuccess: (cancelledTx) => {
+      qc.invalidateQueries({ queryKey: TRANSACTION_KEY });
+      // Backend mengembalikan stok — refresh produk
+      qc.invalidateQueries({ queryKey: PRODUCT_KEY });
+      toast.success(`Transaksi ${cancelledTx.receiptNumber} dibatalkan, stok dikembalikan`);
+    },
+    onError: (err: { response?: { data?: { message?: string } } }) => {
+      toast.error(err.response?.data?.message || 'Gagal membatalkan transaksi');
+    },
+  });
+}

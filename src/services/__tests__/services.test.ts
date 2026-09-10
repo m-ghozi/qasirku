@@ -372,4 +372,18 @@ describe('transactionService normalisasi', () => {
     await transactionService.cancel(5);
     expect(api.delete).toHaveBeenCalledWith('/transactions/5');
   });
+
+  it('cancelCompleted → POST /transactions/:id/cancel dengan alasan', async () => {
+    resolveData('post', { id: 7, receiptNumber: 'TX7', subtotal: '3000', total: '3000', status: 'cancelled' });
+    const tx = await transactionService.cancelCompleted(7, 'salah input');
+    expect(api.post).toHaveBeenCalledWith('/transactions/7/cancel', { reason: 'salah input' });
+    expect(tx.status).toBe('cancelled');
+    expect(tx.total).toBe(3000);
+  });
+
+  it('cancelCompleted tanpa alasan → reason undefined', async () => {
+    resolveData('post', { id: 8, receiptNumber: 'TX8', subtotal: '0', total: '0', status: 'cancelled' });
+    await transactionService.cancelCompleted(8);
+    expect(api.post).toHaveBeenCalledWith('/transactions/8/cancel', { reason: undefined });
+  });
 });
