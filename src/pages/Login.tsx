@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/use-auth';
+import { useViewportHeight, COMPACT_VIEWPORT_HEIGHT } from '@/hooks/use-viewport-height';
 import { cn } from '@/lib/utils';
 import { Delete, Loader2 } from 'lucide-react';
 
@@ -71,6 +72,12 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Tinggi visual viewport — menyusut saat keyboard mobile muncul, agar
+  // konten yang di-center tidak terdorong keluar layar.
+  const viewportHeight = useViewportHeight();
+  const compact = viewportHeight !== null && viewportHeight < COMPACT_VIEWPORT_HEIGHT;
+  const viewportStyle = viewportHeight ? { minHeight: `${viewportHeight}px` } : undefined;
+
 
   useEffect(() => {
     if (step !== 'pin') return;
@@ -127,11 +134,21 @@ export default function Login() {
 
   if (step === 'username') {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-background px-6">
-        <div className="w-full max-w-sm space-y-8">
+      <div
+        style={viewportStyle}
+        className="min-h-dvh flex flex-col items-center bg-background px-6 py-6"
+      >
+        <div className="my-auto w-full max-w-sm space-y-6">
           {/* Logo / judul */}
           <div className="text-center space-y-1">
-            <img src="/qasir-icon.png" alt="QasirKu" className="w-32 h-32 mx-auto mb-4 object-contain" />
+            <img
+              src="/qasir-icon.png"
+              alt="QasirKu"
+              className={cn(
+                'mx-auto object-contain transition-all duration-200',
+                compact ? 'w-16 h-16 mb-1' : 'w-32 h-32 mb-4'
+              )}
+            />
             <h1 className="text-2xl font-bold tracking-tight">QasirKu</h1>
             <p className="text-sm text-muted-foreground">Masuk untuk melanjutkan</p>
           </div>
@@ -177,11 +194,21 @@ export default function Login() {
   // ── Render PIN step ───────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-background px-6">
-      <div className="w-full max-w-xs space-y-2">
+    <div
+      style={viewportStyle}
+      className="min-h-dvh flex flex-col items-center bg-background px-6 py-6"
+    >
+      <div className="my-auto w-full max-w-xs space-y-2">
         {/* Header */}
         <div className="text-center space-y-1 mb-2">
-          <img src="/qasir-icon.png" alt="QasirKu" className="w-24 h-24 mx-auto mb-4 object-contain" />
+          <img
+            src="/qasir-icon.png"
+            alt="QasirKu"
+            className={cn(
+              'mx-auto object-contain transition-all duration-200',
+              compact ? 'w-16 h-16 mb-1' : 'w-24 h-24 mb-4'
+            )}
+          />
           <h1 className="text-lg font-bold">Halo, <span className="text-primary">@{username}</span></h1>
           <p className="text-sm text-muted-foreground">Masukkan PIN kamu</p>
         </div>
