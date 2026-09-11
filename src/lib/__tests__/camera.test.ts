@@ -4,6 +4,7 @@ import {
   cameraErrorMessage,
   cameraDeniedMessage,
   cameraUnsupportedMessage,
+  isFrontFacingCamera,
   pickCameraDeviceId,
 } from '@/lib/camera';
 
@@ -33,6 +34,59 @@ describe('pickCameraDeviceId', () => {
 
   it('mengembalikan null bila tidak ada kamera', () => {
     expect(pickCameraDeviceId([], 'environment')).toBeNull();
+  });
+});
+
+describe('isFrontFacingCamera', () => {
+  const back = { deviceId: 'back-id', label: 'camera2 0, facing back' };
+  const front = { deviceId: 'front-id', label: 'camera2 1, facing front' };
+  const laptopCam = { deviceId: 'laptop', label: 'HD Webcam' };
+
+  it('percaya arah yang dilaporkan track', () => {
+    expect(isFrontFacingCamera('user', 'environment', [back, front])).toBe(true);
+    expect(isFrontFacingCamera('environment', 'user', [back, front])).toBe(false);
+  });
+
+  it('webcam tunggal tetap dianggap kamera depan walau yang diminta environment', () => {
+    // Kasus laptop: cuma ada satu kamera dan itu menghadap pengguna, jadi
+    // permintaan `environment` tetap dipenuhi kamera depan.
+    expect(isFrontFacingCamera(undefined, 'environment', [laptopCam])).toBe(true);
+    expect(isFrontFacingCamera(null, 'environment', [laptopCam])).toBe(true);
+  });
+
+  it('kamera tunggal berlabel "facing back" tidak di-mirror', () => {
+    expect(isFrontFacingCamera(undefined, 'environment', [back])).toBe(false);
+  });
+
+  it('memakai label kamera yang sedang jalan saat kamera lebih dari satu', () => {
+    // Laptop Windows Hello: kamera RGB + kamera IR, arah tak dilaporkan browser.
+    // Keduanya menghadap pengguna karena di daftar tak ada kamera belakang.
+    const rgb = { deviceId: 'rgb', label: 'Integrated Camera' };
+    const ir = { deviceId: 'ir', label: 'IR Camera' };
+    expect(isFrontFacingCamera(undefined, 'environment', [rgb, ir], 'rgb')).toBe(true);
+    expect(isFrontFacingCamera(undefined, 'environment', [rgb, ir], 'ir')).toBe(true);
+  });
+
+  it('tidak menganggap kamera depan bila perangkat memang punya kamera belakang', () => {
+    // Label aktif tidak menyebut arah, tapi ada kamera belakang di daftar →
+    // jangan menebak, ikuti arah yang diminta.
+    const unknown = { deviceId: 'x', label: 'USB Camera' };
+    expect(isFrontFacingCamera(undefined, 'environment', [unknown, back], 'x')).toBe(false);
+    expect(isFrontFacingCamera(undefined, 'user', [unknown, back], 'x')).toBe(true);
+    // Label belakang menang walau arah yang diminta 'user'
+    expect(isFrontFacingCamera(undefined, 'user', [back, front], 'back-id')).toBe(false);
+  });
+
+  it('bila ada beberapa kamera tanpa laporan arah, ikuti arah yang diminta', () => {
+    const a = { deviceId: 'a', label: '' };
+    const b = { deviceId: 'b', label: '' };
+    expect(isFrontFacingCamera(undefined, 'user', [a, b])).toBe(true);
+    expect(isFrontFacingCamera(undefined, 'environment', [a, b])).toBe(false);
+  });
+
+  it('tidak crash saat daftar kamera belum terisi', () => {
+    expect(isFrontFacingCamera(undefined, 'user')).toBe(true);
+    expect(isFrontFacingCamera(undefined, 'environment')).toBe(false);
   });
 });
 

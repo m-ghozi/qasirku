@@ -176,7 +176,9 @@ export default function CameraCapture({
 
   return (
     <Dialog open={open} onOpenChange={v => v || onClose()}>
-      <DialogContent className="max-w-[95vw] rounded-xl p-0 overflow-hidden">
+      {/* Sama seperti BarcodeScanner: 95vw dibatasi ke layar sempit saja, kalau
+          tidak di desktop dialog jadi ~95vw dan preview kamera terlihat zoom. */}
+      <DialogContent className="max-w-[95vw] sm:max-w-md rounded-xl p-0 overflow-x-hidden overflow-y-auto max-h-[92dvh]">
         <DialogHeader className="p-4 pb-0">
           <DialogTitle className="flex items-center gap-2">
             <Camera className="w-5 h-5" />
@@ -203,7 +205,6 @@ export default function CameraCapture({
                 <video
                   ref={videoRef}
                   className="w-full h-auto max-h-[60vh] object-contain"
-                  style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : undefined }}
                   autoPlay
                   muted
                   playsInline

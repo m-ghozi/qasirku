@@ -10,6 +10,7 @@ import {
   cameraErrorMessage,
   cameraDeniedMessage,
   cameraUnsupportedMessage,
+  isFrontFacingCamera,
   listVideoInputDevices,
   pickCameraDeviceId,
   type FacingMode,
@@ -38,14 +39,24 @@ export default function BarcodeScanner({ open, onClose, onScan }: BarcodeScanner
   const [errorState, setErrorState] = useState<string | null>(null);
   // Kamera aktif; tombol ganti kamera hanya muncul bila perangkat punya >1 kamera
   const [facingMode, setFacingMode] = useState<FacingMode>('environment');
-  const [canFlip, setCanFlip] = useState(false);
+  const [devices, setDevices] = useState<VideoInputDevice[]>([]);
+  // Info kamera yang benar-benar jalan — html5-qrcode boleh mengabaikan
+  // constraint yang diminta, jadi preview di-mirror berdasarkan ini.
+  const [track, setTrack] = useState<{ facing?: string; deviceId?: string } | null>(null);
   const scannerId = 'barcode-scanner';
+
+  // Preview kamera depan di-mirror supaya terasa seperti selfie (tangan kiri
+  // muncul di kiri layar) — patokannya kamera yang benar-benar aktif, lihat
+  // isFrontFacingCamera(). Ini cuma CSS: decoding barcode tetap dari frame asli.
+  const mirrored = isFrontFacingCamera(track?.facing, facingMode, devices, track?.deviceId);
+  const canFlip = devices.length > 1;
 
   useEffect(() => {
     if (!open) {
       // Dialog ditutup → tidak ada kamera yang jalan, jadi catatannya direset
       // agar pemilihan kamera saat dibuka lagi tidak menganggap yang lama aktif.
       deviceIdRef.current = null;
+      setTrack(null);
       return;
     }
 
@@ -137,7 +148,7 @@ export default function BarcodeScanner({ open, onClose, onScan }: BarcodeScanner
       preflightStream?.getTracks().forEach(t => t.stop());
       if (cancelled) return;
 
-      setCanFlip(devices.length > 1);
+      setDevices(devices);
 
       // Kamera yang sedang jalan sebelum restart (mis. saat tombol ganti kamera ditekan)
       let targetDeviceId = pickCameraDeviceId(devices, facingMode, deviceIdRef.current);
@@ -218,10 +229,12 @@ export default function BarcodeScanner({ open, onClose, onScan }: BarcodeScanner
         // browser mengabaikan constraint) agar tombol ganti kamera tahu harus
         // berpindah dari kamera mana.
         try {
-          deviceIdRef.current =
-            scanner.getRunningTrackSettings()?.deviceId ?? targetDeviceId;
+          const settings = scanner.getRunningTrackSettings();
+          deviceIdRef.current = settings?.deviceId ?? targetDeviceId;
+          setTrack({ facing: settings?.facingMode, deviceId: settings?.deviceId });
         } catch {
           deviceIdRef.current = targetDeviceId;
+          setTrack(null);
         }
 
         try {
@@ -298,7 +311,15 @@ export default function BarcodeScanner({ open, onClose, onScan }: BarcodeScanner
 
   return (
     <Dialog open={open} onOpenChange={v => v || handleClose()}>
-      <DialogContent className="max-w-[95vw] rounded-xl p-0 overflow-hidden">
+      {/* Sama seperti CameraCapture: 95vw dibatasi ke layar sempit saja. Tanpa
+          `sm:max-w-md` dialog jadi ~95vw di desktop, dan karena html5-qrcode
+          melebarkan video mengikuti lebar kontainer, preview-nya menjulang
+          melebihi layar. `max-h` + scroll menggantikan `overflow-hidden` yang
+          memotong isi dialog tanpa bisa digeser.
+          Varian max-height mengecilkan dialog saat layar pendek (HP landscape),
+          karena tinggi video ikut lebar kontainer — tanpa ini dialognya penuh
+          dan tombol Batal ada di bawah lipatan. */}
+      <DialogContent className="max-w-[95vw] sm:max-w-md [@media(max-height:520px)]:max-w-[min(95vw,20rem)] rounded-xl p-0 overflow-x-hidden overflow-y-auto max-h-[92dvh]">
         <DialogHeader className="p-4 pb-0">
           <DialogTitle className="flex items-center gap-2">
             <Camera className="w-5 h-5" />
@@ -321,7 +342,14 @@ export default function BarcodeScanner({ open, onClose, onScan }: BarcodeScanner
             </div>
           ) : (
             <>
-              <div id={scannerId} className="w-full aspect-[4/3] bg-black rounded-lg" />
+              {/* Mirror hanya kena elemen <video> yang disuntik html5-qrcode,
+                  bukan kotak pandu scan-nya (#qr-shaded-region). */}
+              <div
+                id={scannerId}
+                className={`w-full aspect-[4/3] bg-black rounded-lg ${
+                  mirrored ? '[&_video]:-scale-x-100' : ''
+                }`}
+              />
               {permission === 'checking' && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-lg">
                   <p className="text-white text-sm">Meminta izin kamera...</p>
