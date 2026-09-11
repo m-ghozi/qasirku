@@ -13,8 +13,6 @@ import api from '@/lib/api';
  * di-handle dengan mengiterasi hari per hari dan menggabungkan hasilnya.
  */
 
-const CURRENCY_FMT = '#,##0';
-
 export interface ExportResult {
     fileName: string;
     txCount: number;
@@ -24,6 +22,30 @@ export interface ExportResult {
 
 const XLSX_MIME =
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+// ─── Design tokens (selaras dengan tema aplikasi) ─────────────────────────────
+
+/** Warna utama (blue-700) untuk bar judul & header tabel. */
+const BRAND = 'FF1D4ED8';
+/** Warna lembut (blue-50) untuk baris total / section. */
+const BRAND_SOFT = 'FFEFF6FF';
+/** Warna netral untuk baris zebra (slate-50). */
+const ZEBRA = 'FFF8FAFC';
+/** Garis tabel (gray-300). */
+const BORDER = 'FFD1D5DB';
+/** Garis header di atas latar biru (blue-200). */
+const BORDER_ON_BRAND = 'FFBFDBFE';
+/** Teks utama (slate-900). */
+const INK = 'FF0F172A';
+/** Teks sekunder (slate-500). */
+const MUTED = 'FF64748B';
+
+/** Format mata uang: ribuan dengan prefix Rp, negatif merah dalam kurung. */
+const MONEY_FMT = '"Rp"#,##0;[Red]-"Rp"#,##0';
+const INT_FMT = '#,##0';
+const PCT_FMT = '0.0%';
+
+const A4_PAPER = 9;
 
 // ─── Types (sesuai response reportService) ────────────────────────────────────
 
@@ -62,6 +84,14 @@ interface AggregatedReport {
     paymentSummary: Map<string, { amount: number; count: number }>;
     productSummary: Map<string, { name: string; quantity: number; revenue: number; profit: number }>;
     dailyChart: { date: string; revenue: number; txCount: number }[];
+}
+
+/** Konteks bersama untuk seluruh sheet (judul, periode, footer). */
+interface SheetContext {
+    storeName: string;
+    start: Date;
+    end: Date;
+    generatedAt: Date;
 }
 
 /**
@@ -139,16 +169,6 @@ async function fetchAndAggregate(start: Date, end: Date): Promise<AggregatedRepo
 
 // ─── File helpers ─────────────────────────────────────────────────────────────
 
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    const chunk = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunk) {
-        binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-    }
-    return btoa(binary);
-}
-
 async function saveFile(buffer: ArrayBuffer, fileName: string): Promise<void> {
     const blob = new Blob([buffer], { type: XLSX_MIME });
     const url = URL.createObjectURL(blob);
@@ -189,10 +209,12 @@ export async function exportReportToExcel(rangeStart: Date, rangeEnd: Date): Pro
     wb.creator = storeName;
     wb.created = end;
 
-    buildSummarySheet(wb, { storeName, start, end, report });
-    buildDailyChartSheet(wb, report.dailyChart);
-    buildPaymentSheet(wb, report);
-    buildTopProductsSheet(wb, report);
+    const ctx: SheetContext = { storeName, start, end, generatedAt: new Date() };
+
+    buildSummarySheet(wb, ctx, report);
+    buildDailyChartSheet(wb, ctx, report.dailyChart);
+    buildPaymentSheet(wb, ctx, report);
+    buildTopProductsSheet(wb, ctx, report);
 
     const buffer = await wb.xlsx.writeBuffer();
     const fileName = `Laporan_${sanitizeForFileName(storeName)}_${format(start, 'yyyy-MM-dd')}_${format(end, 'yyyy-MM-dd')}.xlsx`;
@@ -206,154 +228,370 @@ export async function exportReportToExcel(rangeStart: Date, rangeEnd: Date): Pro
     };
 }
 
-// ─── Sheet builders ───────────────────────────────────────────────────────────
+// ─── Styling primitives ───────────────────────────────────────────────────────
 
 type Workbook = ExcelJSTypes.Workbook;
 type Worksheet = ExcelJSTypes.Worksheet;
+type Row = ExcelJSTypes.Row;
+type Cell = ExcelJSTypes.Cell;
 
-function styleHeaderRow(row: ExcelJSTypes.Row) {
-    row.eachCell((cell) => {
-        cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEA7B0D' } };
-        cell.alignment = { vertical: 'middle' };
-    });
+const THIN_BORDER: Partial<ExcelJSTypes.Borders> = {
+    top: { style: 'thin', color: { argb: BORDER } },
+    left: { style: 'thin', color: { argb: BORDER } },
+    bottom: { style: 'thin', color: { argb: BORDER } },
+    right: { style: 'thin', color: { argb: BORDER } },
+};
+
+const HEADER_BORDER: Partial<ExcelJSTypes.Borders> = {
+    top: { style: 'thin', color: { argb: BORDER_ON_BRAND } },
+    left: { style: 'thin', color: { argb: BORDER_ON_BRAND } },
+    bottom: { style: 'thin', color: { argb: BORDER_ON_BRAND } },
+    right: { style: 'thin', color: { argb: BORDER_ON_BRAND } },
+};
+
+const FILL = (argb: string): ExcelJSTypes.FillPattern => ({
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb },
+});
+
+/** Baris judul + periode di atas tabel, digabung selebar tabel. */
+function writeSheetTitle(ws: Worksheet, ctx: SheetContext, title: string, span: number) {
+    const titleRow = ws.addRow([title]);
+    ws.mergeCells(titleRow.number, 1, titleRow.number, span);
+    titleRow.height = 30;
+    const titleCell = titleRow.getCell(1);
+    titleCell.font = { bold: true, size: 15, color: { argb: BRAND } };
+    titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
+
+    const subRow = ws.addRow([
+        `${ctx.storeName}  •  Periode ${format(ctx.start, 'dd/MM/yyyy')} – ${format(ctx.end, 'dd/MM/yyyy')}`,
+    ]);
+    ws.mergeCells(subRow.number, 1, subRow.number, span);
+    subRow.height = 18;
+    const subCell = subRow.getCell(1);
+    subCell.font = { size: 10, color: { argb: MUTED } };
+    subCell.alignment = { vertical: 'middle', horizontal: 'center' };
+
+    ws.addRow([]);
 }
 
-function setupTable(
-    ws: Worksheet,
-    columns: { header: string; key: string; width: number; money?: boolean }[],
-) {
-    ws.columns = columns.map((c) => ({ key: c.key, width: c.width }));
-    const headerRow = ws.addRow(columns.map((c) => c.header));
-    styleHeaderRow(headerRow);
-    ws.views = [{ state: 'frozen', ySplit: 1 }];
-    return columns;
-}
-
-function applyMoneyFormat(ws: Worksheet, columns: { key: string; money?: boolean }[]) {
-    for (const col of columns) {
-        if (col.money) ws.getColumn(col.key).numFmt = CURRENCY_FMT;
+/** Header tabel: latar brand, teks putih tebal, terpusat. */
+function styleHeaderRow(row: Row, span: number) {
+    row.height = 24;
+    for (let c = 1; c <= span; c++) {
+        const cell = row.getCell(c);
+        cell.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
+        cell.fill = FILL(BRAND);
+        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+        cell.border = HEADER_BORDER;
     }
 }
 
-function pct(val: number, total: number) {
-    return total === 0 ? '0.0%' : `${((val / total) * 100).toFixed(1)}%`;
+/** Baris data: border tipis, zebra opsional, angka rata kanan. */
+function styleBodyRow(row: Row, span: number, opts: { zebra?: boolean; numericFrom?: number } = {}) {
+    row.height = 19;
+    const numericFrom = opts.numericFrom ?? span + 1;
+    for (let c = 1; c <= span; c++) {
+        const cell = row.getCell(c);
+        cell.border = THIN_BORDER;
+        if (opts.zebra) cell.fill = FILL(ZEBRA);
+        cell.alignment = {
+            vertical: 'middle',
+            horizontal: c >= numericFrom ? 'right' : 'left',
+        };
+    }
 }
 
-function buildSummarySheet(
-    wb: Workbook,
-    { storeName, start, end, report }: { storeName: string; start: Date; end: Date; report: AggregatedReport },
-) {
-    const ws = wb.addWorksheet('Ringkasan');
-    ws.columns = [{ width: 30 }, { width: 22 }];
+/** Baris total: tebal, latar lembut, garis atas tegas. */
+function styleTotalRow(row: Row, span: number) {
+    row.height = 22;
+    for (let c = 1; c <= span; c++) {
+        const cell = row.getCell(c);
+        cell.font = { bold: true, color: { argb: INK } };
+        cell.fill = FILL(BRAND_SOFT);
+        cell.border = { ...THIN_BORDER, top: { style: 'medium', color: { argb: BRAND } } };
+        cell.alignment = { vertical: 'middle', horizontal: c === 1 ? 'left' : 'right' };
+    }
+}
 
-    const titleRow = ws.addRow([`Laporan ${storeName}`]);
-    titleRow.font = { bold: true, size: 14 };
-    ws.addRow(['Periode', `${format(start, 'dd/MM/yyyy')} – ${format(end, 'dd/MM/yyyy')}`]);
-    ws.addRow(['Dibuat', format(new Date(), 'dd/MM/yyyy HH:mm')]);
+/** Baris section (mis. "RINGKASAN PENJUALAN") yang digabung selebar tabel. */
+function addSectionRow(ws: Worksheet, label: string, span: number): Row {
+    const row = ws.addRow([label]);
+    ws.mergeCells(row.number, 1, row.number, span);
+    row.height = 22;
+    const cell = row.getCell(1);
+    cell.font = { bold: true, size: 11, color: { argb: BRAND } };
+    cell.fill = FILL(BRAND_SOFT);
+    cell.alignment = { vertical: 'middle', horizontal: 'left' };
+    cell.border = THIN_BORDER;
+    return row;
+}
+
+function applyMoneyFormat(row: Row, cols: number[]) {
+    for (const c of cols) row.getCell(c).numFmt = MONEY_FMT;
+}
+
+/** Rasio 0–1 (dipakai bersama numFmt persen native Excel). */
+function pctValue(val: number, total: number): number {
+    return total === 0 ? 0 : val / total;
+}
+
+/** Page setup A4 siap cetak + footer nomor halaman. */
+function applyPageSetup(ws: Worksheet, ctx: SheetContext, orientation: 'portrait' | 'landscape') {
+    ws.pageSetup = {
+        paperSize: A4_PAPER,
+        orientation,
+        fitToPage: true,
+        fitToWidth: 1,
+        fitToHeight: 0,
+        horizontalCentered: true,
+        margins: { left: 0.5, right: 0.5, top: 0.6, bottom: 0.6, header: 0.3, footer: 0.3 },
+    };
+    ws.headerFooter = {
+        oddFooter: `&L&"Calibri,Italic"${ctx.storeName} — dibuat ${format(ctx.generatedAt, 'dd/MM/yyyy HH:mm')}&R&"Calibri,Italic"Hal. &P/&N`,
+    };
+}
+
+// ─── Sheet builders ───────────────────────────────────────────────────────────
+
+function buildSummarySheet(wb: Workbook, ctx: SheetContext, report: AggregatedReport) {
+    const ws = wb.addWorksheet('Ringkasan');
+    const SPAN = 3;
+    ws.columns = [{ width: 34 }, { width: 22 }, { width: 16 }];
+    applyPageSetup(ws, ctx, 'portrait');
+
+    // ── Kop laporan ──
+    const titleRow = ws.addRow(['Laporan Penjualan']);
+    ws.mergeCells(titleRow.number, 1, titleRow.number, SPAN);
+    titleRow.height = 32;
+    titleRow.getCell(1).font = { bold: true, size: 16, color: { argb: BRAND } };
+    titleRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
+
+    const storeRow = ws.addRow([ctx.storeName]);
+    ws.mergeCells(storeRow.number, 1, storeRow.number, SPAN);
+    storeRow.height = 20;
+    storeRow.getCell(1).font = { bold: true, size: 12, color: { argb: INK } };
+    storeRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
+
+    const infoRow = (label: string, value: string) => {
+        const row = ws.addRow([label, value]);
+        ws.mergeCells(row.number, 2, row.number, SPAN);
+        row.getCell(1).font = { size: 10, color: { argb: MUTED } };
+        row.getCell(2).font = { size: 10, color: { argb: INK } };
+        row.getCell(1).alignment = { vertical: 'middle', horizontal: 'left' };
+        row.getCell(2).alignment = { vertical: 'middle', horizontal: 'left' };
+    };
+    infoRow('Periode', `${format(ctx.start, 'dd/MM/yyyy')} – ${format(ctx.end, 'dd/MM/yyyy')}`);
+    infoRow('Dibuat', format(ctx.generatedAt, 'dd/MM/yyyy HH:mm'));
     ws.addRow([]);
+
+    // ── Ringkasan penjualan ──
+    addSectionRow(ws, 'RINGKASAN PENJUALAN', SPAN);
 
     const { stats } = report;
-    const netProfit = stats.totalRevenue - stats.totalDiscount - stats.totalProfit; // gross profit approx
-
-    const moneyRow = (label: string, value: number, bold = false) => {
+    const kpi = (
+        label: string,
+        value: number,
+        numFmt: string,
+        opts: { emphasis?: boolean } = {},
+    ) => {
         const row = ws.addRow([label, value]);
-        row.getCell(2).numFmt = CURRENCY_FMT;
-        if (bold) row.font = { bold: true };
+        ws.mergeCells(row.number, 2, row.number, SPAN);
+        row.height = 20;
+        const labelCell = row.getCell(1);
+        const valueCell = row.getCell(2);
+        labelCell.border = THIN_BORDER;
+        valueCell.border = THIN_BORDER;
+        labelCell.alignment = { vertical: 'middle' };
+        valueCell.alignment = { vertical: 'middle', horizontal: 'right' };
+        valueCell.numFmt = numFmt;
+        if (opts.emphasis) {
+            labelCell.font = { bold: true, color: { argb: INK } };
+            valueCell.font = { bold: true, color: { argb: INK } };
+            labelCell.fill = FILL(BRAND_SOFT);
+            valueCell.fill = FILL(BRAND_SOFT);
+        } else {
+            labelCell.font = { color: { argb: MUTED } };
+            valueCell.font = { color: { argb: INK } };
+        }
     };
 
-    ws.addRow(['Jumlah Transaksi', stats.totalSalesCount]);
-    moneyRow('Pendapatan Kotor', stats.totalGrossRevenue);
-    moneyRow('Total Diskon', -stats.totalDiscount);
-    moneyRow('Penjualan Bersih', stats.totalRevenue, true);
-    moneyRow('Total Profit', stats.totalProfit, true);
-    ws.addRow(['Margin Profit', pct(stats.totalProfit, stats.totalRevenue)]);
+    kpi('Jumlah Transaksi', stats.totalSalesCount, INT_FMT);
+    kpi('Pendapatan Kotor', stats.totalGrossRevenue, MONEY_FMT);
+    kpi('Total Diskon', -stats.totalDiscount, MONEY_FMT);
+    kpi('Penjualan Bersih', stats.totalRevenue, MONEY_FMT, { emphasis: true });
+    kpi('Total Profit', stats.totalProfit, MONEY_FMT, { emphasis: true });
+    kpi('Margin Profit', pctValue(stats.totalProfit, stats.totalRevenue), PCT_FMT);
     ws.addRow([]);
 
-    // Payment breakdown
-    const payHeader = ws.addRow(['Metode Bayar', 'Total (Rp)', 'Transaksi']);
-    styleHeaderRow(payHeader);
+    // ── Metode pembayaran ──
+    addSectionRow(ws, 'METODE PEMBAYARAN', SPAN);
+    const header = ws.addRow(['Metode Bayar', 'Total', 'Transaksi']);
+    styleHeaderRow(header, SPAN);
+
     const sortedPayments = [...report.paymentSummary.entries()].sort((a, b) => b[1].amount - a[1].amount);
     if (sortedPayments.length === 0) {
-        ws.addRow(['—', 0, 0]);
+        const row = ws.addRow(['Tidak ada data pembayaran', '', '']);
+        styleBodyRow(row, SPAN, { numericFrom: 2 });
     } else {
-        for (const [name, v] of sortedPayments) {
+        sortedPayments.forEach(([name, v], i) => {
             const row = ws.addRow([name, v.amount, v.count]);
-            row.getCell(2).numFmt = CURRENCY_FMT;
-        }
+            styleBodyRow(row, SPAN, { zebra: i % 2 === 1, numericFrom: 2 });
+            row.getCell(2).numFmt = MONEY_FMT;
+            row.getCell(3).numFmt = INT_FMT;
+        });
     }
+
+    const totalAmount = sortedPayments.reduce((s, [, v]) => s + v.amount, 0);
+    const totalCount = sortedPayments.reduce((s, [, v]) => s + v.count, 0);
+    const totalRow = ws.addRow(['TOTAL', totalAmount, totalCount]);
+    styleTotalRow(totalRow, SPAN);
+    applyMoneyFormat(totalRow, [2]);
+    totalRow.getCell(3).numFmt = INT_FMT;
 }
 
-function buildDailyChartSheet(wb: Workbook, dailyChart: AggregatedReport['dailyChart']) {
+function buildDailyChartSheet(wb: Workbook, ctx: SheetContext, dailyChart: AggregatedReport['dailyChart']) {
     const ws = wb.addWorksheet('Data Harian');
-    const columns = [
-        { header: 'Tanggal', key: 'date', width: 14 },
-        { header: 'Pendapatan Bersih (Rp)', key: 'revenue', width: 24, money: true },
-        { header: 'Jumlah Transaksi', key: 'txCount', width: 18 },
+    const SPAN = 3;
+    ws.columns = [
+        { key: 'date', width: 16 },
+        { key: 'revenue', width: 22 },
+        { key: 'txCount', width: 18 },
     ];
-    setupTable(ws, columns);
+    applyPageSetup(ws, ctx, 'portrait');
+
+    writeSheetTitle(ws, ctx, 'Data Harian', SPAN);
+    const header = ws.addRow(['Tanggal', 'Pendapatan Bersih', 'Jumlah Transaksi']);
+    styleHeaderRow(header, SPAN);
+    const headerRowNumber = header.number;
 
     let totalRevenue = 0;
     let totalTx = 0;
-    for (const d of dailyChart) {
-        ws.addRow({ date: d.date, revenue: d.revenue, txCount: d.txCount });
+    dailyChart.forEach((d, i) => {
+        const row = ws.addRow([d.date, d.revenue, d.txCount]);
+        styleBodyRow(row, SPAN, { zebra: i % 2 === 1, numericFrom: 2 });
+        row.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
+        row.getCell(2).numFmt = MONEY_FMT;
+        row.getCell(3).numFmt = INT_FMT;
         totalRevenue += d.revenue;
         totalTx += d.txCount;
+    });
+
+    const totalRow = ws.addRow(['TOTAL', totalRevenue, totalTx]);
+    styleTotalRow(totalRow, SPAN);
+    applyMoneyFormat(totalRow, [2]);
+    totalRow.getCell(3).numFmt = INT_FMT;
+    totalRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
+
+    if (dailyChart.length > 0) {
+        ws.autoFilter = { from: { row: headerRowNumber, column: 1 }, to: { row: totalRow.number - 1, column: SPAN } };
     }
-
-    const totalRow = ws.addRow({ date: 'TOTAL', revenue: totalRevenue, txCount: totalTx });
-    totalRow.font = { bold: true };
-    totalRow.eachCell((cell) => { cell.border = { top: { style: 'thin' } }; });
-
-    applyMoneyFormat(ws, columns);
+    ws.views = [{ state: 'frozen', ySplit: headerRowNumber }];
 }
 
-function buildPaymentSheet(wb: Workbook, report: AggregatedReport) {
+function buildPaymentSheet(wb: Workbook, ctx: SheetContext, report: AggregatedReport) {
     const ws = wb.addWorksheet('Metode Pembayaran');
-    const columns = [
-        { header: 'Metode Bayar', key: 'name', width: 25 },
-        { header: 'Total (Rp)', key: 'amount', width: 20, money: true },
-        { header: 'Jumlah Transaksi', key: 'count', width: 18 },
-        { header: '% dari Total', key: 'pct', width: 14 },
+    const SPAN = 4;
+    ws.columns = [
+        { key: 'name', width: 26 },
+        { key: 'amount', width: 20 },
+        { key: 'count', width: 18 },
+        { key: 'pct', width: 14 },
     ];
-    setupTable(ws, columns);
+    applyPageSetup(ws, ctx, 'portrait');
+
+    writeSheetTitle(ws, ctx, 'Rekap Metode Pembayaran', SPAN);
+    const header = ws.addRow(['Metode Bayar', 'Total', 'Jumlah Transaksi', '% dari Total']);
+    styleHeaderRow(header, SPAN);
+    const headerRowNumber = header.number;
 
     const totalAmount = [...report.paymentSummary.values()].reduce((s, v) => s + v.amount, 0);
+    const totalCount = [...report.paymentSummary.values()].reduce((s, v) => s + v.count, 0);
     const sorted = [...report.paymentSummary.entries()].sort((a, b) => b[1].amount - a[1].amount);
 
-    for (const [name, v] of sorted) {
-        ws.addRow({ name, amount: v.amount, count: v.count, pct: pct(v.amount, totalAmount) });
+    if (sorted.length === 0) {
+        const row = ws.addRow(['Tidak ada data pembayaran', '', '', '']);
+        styleBodyRow(row, SPAN, { numericFrom: 2 });
+        row.getCell(4).numFmt = PCT_FMT;
+    } else {
+        sorted.forEach(([name, v], i) => {
+            const row = ws.addRow([name, v.amount, v.count, pctValue(v.amount, totalAmount)]);
+            styleBodyRow(row, SPAN, { zebra: i % 2 === 1, numericFrom: 2 });
+            row.getCell(2).numFmt = MONEY_FMT;
+            row.getCell(3).numFmt = INT_FMT;
+            row.getCell(4).numFmt = PCT_FMT;
+        });
     }
 
-    applyMoneyFormat(ws, columns);
+    const totalRow = ws.addRow(['TOTAL', totalAmount, totalCount, sorted.length === 0 ? 0 : 1]);
+    styleTotalRow(totalRow, SPAN);
+    applyMoneyFormat(totalRow, [2]);
+    totalRow.getCell(3).numFmt = INT_FMT;
+    totalRow.getCell(4).numFmt = PCT_FMT;
+
+    if (sorted.length > 0) {
+        ws.autoFilter = { from: { row: headerRowNumber, column: 1 }, to: { row: totalRow.number - 1, column: SPAN } };
+    }
+    ws.views = [{ state: 'frozen', ySplit: headerRowNumber }];
 }
 
-function buildTopProductsSheet(wb: Workbook, report: AggregatedReport) {
+function buildTopProductsSheet(wb: Workbook, ctx: SheetContext, report: AggregatedReport) {
     const ws = wb.addWorksheet('Produk Terlaris');
-    const columns = [
-        { header: 'No', key: 'no', width: 5 },
-        { header: 'Nama Produk', key: 'name', width: 32 },
-        { header: 'Qty Terjual', key: 'quantity', width: 13 },
-        { header: 'Pendapatan (Rp)', key: 'revenue', width: 20, money: true },
-        { header: 'Profit (Rp)', key: 'profit', width: 18, money: true },
-        { header: '% Profit', key: 'pct', width: 12 },
+    const SPAN = 6;
+    ws.columns = [
+        { key: 'no', width: 6 },
+        { key: 'name', width: 34 },
+        { key: 'quantity', width: 13 },
+        { key: 'revenue', width: 20 },
+        { key: 'profit', width: 18 },
+        { key: 'pct', width: 12 },
     ];
-    setupTable(ws, columns);
+    applyPageSetup(ws, ctx, 'landscape');
+
+    writeSheetTitle(ws, ctx, 'Produk Terlaris (Top 20 berdasarkan kuantitas)', SPAN);
+    const header = ws.addRow(['No', 'Nama Produk', 'Qty Terjual', 'Pendapatan', 'Profit', '% Profit']);
+    styleHeaderRow(header, SPAN);
+    const headerRowNumber = header.number;
 
     const sorted = [...report.productSummary.values()]
         .sort((a, b) => b.quantity - a.quantity)
         .slice(0, 20);
 
-    sorted.forEach((p, i) => {
-        ws.addRow({
-            no: i + 1,
-            name: p.name,
-            quantity: p.quantity,
-            revenue: p.revenue,
-            profit: p.profit,
-            pct: pct(p.profit, p.revenue),
+    if (sorted.length === 0) {
+        const row = ws.addRow(['', 'Tidak ada data produk', '', '', '', '']);
+        styleBodyRow(row, SPAN, { numericFrom: 3 });
+    } else {
+        sorted.forEach((p, i) => {
+            const row = ws.addRow([
+                i + 1,
+                p.name,
+                p.quantity,
+                p.revenue,
+                p.profit,
+                pctValue(p.profit, p.revenue),
+            ]);
+            styleBodyRow(row, SPAN, { zebra: i % 2 === 1, numericFrom: 3 });
+            row.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
+            row.getCell(3).numFmt = INT_FMT;
+            row.getCell(4).numFmt = MONEY_FMT;
+            row.getCell(5).numFmt = MONEY_FMT;
+            row.getCell(6).numFmt = PCT_FMT;
         });
-    });
+    }
 
-    applyMoneyFormat(ws, columns);
+    if (sorted.length > 0) {
+        const sumRevenue = sorted.reduce((s, p) => s + p.revenue, 0);
+        const sumProfit = sorted.reduce((s, p) => s + p.profit, 0);
+        const sumQty = sorted.reduce((s, p) => s + p.quantity, 0);
+        const totalRow = ws.addRow(['', 'TOTAL', sumQty, sumRevenue, sumProfit, pctValue(sumProfit, sumRevenue)]);
+        styleTotalRow(totalRow, SPAN);
+        totalRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
+        totalRow.getCell(3).numFmt = INT_FMT;
+        applyMoneyFormat(totalRow, [4, 5]);
+        totalRow.getCell(6).numFmt = PCT_FMT;
+
+        ws.autoFilter = { from: { row: headerRowNumber, column: 1 }, to: { row: totalRow.number - 1, column: SPAN } };
+    }
+    ws.views = [{ state: 'frozen', ySplit: headerRowNumber }];
 }
