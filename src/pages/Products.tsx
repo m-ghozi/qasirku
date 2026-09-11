@@ -20,6 +20,7 @@ import BarcodeScanner from '@/components/BarcodeScanner';
 import CameraCapture from '@/components/CameraCapture';
 import type { Product } from '@/services/product.service';
 import NumberInput from '@/components/NumberInput';
+import { marginPercent, priceFromMarginPercent, marginToInputValue, formatMargin } from '@/lib/pricing';
 
 export default function Produk() {
   const { can } = useAuth();
@@ -37,6 +38,8 @@ export default function Produk() {
   const [categoryId, setCategoryId] = useState<string>('');
   const [price, setPrice] = useState('');
   const [hpp, setHpp] = useState('');
+  // Margin % — murni kolom bantu di layar, tidak ikut dikirim ke backend.
+  const [margin, setMargin] = useState('');
   const [stock, setStock] = useState('');
   const [unit, setUnit] = useState('');
   const [barcode, setBarcode] = useState('');
@@ -93,6 +96,7 @@ export default function Produk() {
     setCategoryId(categories?.[0]?.id?.toString() ?? '');
     setPrice('');
     setHpp('');
+    setMargin('');
     setStock('');
     setUnit(defaultUnit);
     setBarcode('');
@@ -108,6 +112,7 @@ export default function Produk() {
     setCategoryId(p.categoryId.toString());
     setPrice(p.price.toString());
     setHpp(p.hpp.toString());
+    setMargin(marginToInputValue(marginPercent(p.price, p.hpp)));
     setStock(p.stock.toString());
     setUnit(p.unit);
     setBarcode(p.barcode ?? '');
@@ -115,6 +120,47 @@ export default function Produk() {
     setPhoto(p.photo);
     setDialogOpen(true);
   };
+
+  /**
+   * Harga Jual, HPP, dan Margin % saling terhubung. Aturannya sederhana:
+   * mengubah harga jual atau HPP → margin dihitung ulang; mengubah margin →
+   * harga jual yang dihitung ulang. HPP tidak pernah diubah otomatis.
+   */
+  const handlePriceChange = (raw: string) => {
+    setPrice(raw);
+    setMargin(marginToInputValue(marginPercent(Number(raw), Number(hpp))));
+  };
+
+  const handleHppChange = (raw: string) => {
+    setHpp(raw);
+    setMargin(marginToInputValue(marginPercent(Number(price), Number(raw))));
+  };
+
+  const handleMarginChange = (raw: string) => {
+    setMargin(raw);
+    if (raw === '') return; // dikosongkan: biarkan harga jual apa adanya
+    const next = priceFromMarginPercent(Number(hpp), Number(raw));
+    if (next !== null) setPrice(String(next));
+  };
+
+  const hppFilled = Number(hpp) > 0;
+
+  // Keterangan di bawah kolom margin: laba per unit, atau alasan kolomnya mati.
+  const marginInfo = useMemo((): { text: string; error: boolean } => {
+    if (margin !== '' && Number(margin) >= 100) {
+      return { text: 'Margin harus di bawah 100%.', error: true };
+    }
+    if (!hppFilled) {
+      return { text: 'Isi HPP dulu untuk memakai kolom margin.', error: false };
+    }
+    const priceNum = Number(price);
+    if (!(priceNum > 0)) {
+      return { text: 'Isi margin untuk menghitung harga jual otomatis.', error: false };
+    }
+    const profit = priceNum - Number(hpp);
+    const label = `Laba Rp ${profit.toLocaleString('id-ID')}/${unit || 'unit'} • margin ${formatMargin(marginPercent(priceNum, Number(hpp)))}`;
+    return { text: label, error: profit < 0 };
+  }, [margin, hpp, hppFilled, price, unit]);
 
   const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -449,25 +495,46 @@ export default function Produk() {
               </Select>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Harga Jual *</Label>
-                <NumberInput
-                  value={price}
-                  onChange={setPrice}
-                  placeholder="15.000"
-                  className="h-11"
-                />
+            <div className="space-y-1.5">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Harga Jual *</Label>
+                  <NumberInput
+                    value={price}
+                    onChange={handlePriceChange}
+                    placeholder="15.000"
+                    className="h-11"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>HPP</Label>
+                  <NumberInput
+                    value={hpp}
+                    onChange={handleHppChange}
+                    placeholder="10.000"
+                    className="h-11"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Margin %</Label>
+                  <NumberInput
+                    value={margin}
+                    onChange={handleMarginChange}
+                    placeholder="33,3"
+                    className="h-11"
+                    decimal
+                    disabled={!hppFilled}
+                  />
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label>HPP</Label>
-                <NumberInput
-                  value={hpp}
-                  onChange={setHpp}
-                  placeholder="10.000"
-                  className="h-11"
-                />
-              </div>
+              <p
+                className={cn(
+                  'text-[10px]',
+                  marginInfo.error ? 'text-destructive' : 'text-muted-foreground',
+                )}
+              >
+                {marginInfo.text}
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-3">

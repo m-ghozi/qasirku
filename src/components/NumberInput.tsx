@@ -9,6 +9,7 @@ interface NumberInputProps {
     className?: string;
     /** Izinkan input desimal (koma). Nilai tetap dikirim sebagai dot-decimal. */
     decimal?: boolean;
+    disabled?: boolean;
 }
 
 const formatInt = (raw: string) => {
@@ -47,11 +48,12 @@ const parseDecimal = (input: string): string => {
  * mengekspos raw numeric string lewat onChange. Set `decimal` untuk mengizinkan
  * input pecahan (mis. 1,5 kg).
  */
-export default function NumberInput({ value, onChange, placeholder, className, decimal }: NumberInputProps) {
+export default function NumberInput({ value, onChange, placeholder, className, decimal, disabled }: NumberInputProps) {
     return (
         <Input
             type="text"
             inputMode={decimal ? 'decimal' : 'numeric'}
+            disabled={disabled}
             value={decimal ? formatDecimal(value) : formatInt(value)}
             onChange={e => {
                 if (decimal) {
