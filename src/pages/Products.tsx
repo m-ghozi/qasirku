@@ -16,8 +16,10 @@ import { useAuth } from '@/hooks/use-auth';
 import { useProducts, useCreateProduct, useUpdateProduct, useDeleteProduct } from '@/hooks/use-products';
 import { useCategories } from '@/hooks/use-categories';
 import { useUnits } from '@/hooks/use-units';
+import { useSuppliers } from '@/hooks/use-suppliers';
 import BarcodeScanner from '@/components/BarcodeScanner';
 import CameraCapture from '@/components/CameraCapture';
+import SearchableSelect from '@/components/SearchableSelect';
 import type { Product } from '@/services/product.service';
 import NumberInput from '@/components/NumberInput';
 import { marginPercent, priceFromMarginPercent, marginToInputValue, formatMargin } from '@/lib/pricing';
@@ -36,6 +38,7 @@ export default function Produk() {
   const [name, setName] = useState('');
   const [sku, setSku] = useState('');
   const [categoryId, setCategoryId] = useState<string>('');
+  const [supplierId, setSupplierId] = useState<string>('');
   const [price, setPrice] = useState('');
   const [hpp, setHpp] = useState('');
   // Margin % — murni kolom bantu di layar, tidak ikut dikirim ke backend.
@@ -56,6 +59,7 @@ export default function Produk() {
   const { data: products = [], isLoading: loadingProducts } = useProducts();
   const { data: categories = [] } = useCategories();
   const { data: units = [] } = useUnits();
+  const { data: suppliers = [] } = useSuppliers();
 
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct();
@@ -94,6 +98,7 @@ export default function Produk() {
     setName('');
     setSku('');
     setCategoryId(categories?.[0]?.id?.toString() ?? '');
+    setSupplierId('');
     setPrice('');
     setHpp('');
     setMargin('');
@@ -110,6 +115,7 @@ export default function Produk() {
     setName(p.name);
     setSku(p.sku);
     setCategoryId(p.categoryId.toString());
+    setSupplierId(p.supplierId?.toString() ?? '');
     setPrice(p.price.toString());
     setHpp(p.hpp.toString());
     setMargin(marginToInputValue(marginPercent(p.price, p.hpp)));
@@ -183,6 +189,8 @@ export default function Produk() {
       name: name.trim(),
       sku: sku.trim(),
       categoryId: Number(categoryId),
+      // Supplier opsional — null saat tidak dipilih agar kolomnya dikosongkan
+      supplierId: supplierId ? Number(supplierId) : null,
       price: Number(price),
       hpp: Number(hpp) || 0,
       // Stok hanya dikirim saat tambah produk baru
@@ -314,6 +322,9 @@ export default function Produk() {
                       </Badge>
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5">SKU: {p.sku || '-'}</p>
+                    {p.supplier?.name && (
+                      <p className="text-xs text-muted-foreground mt-0.5">Supplier: {p.supplier.name}</p>
+                    )}
                     {p.description && (
                       <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2 whitespace-pre-line">
                         {p.description}
@@ -493,6 +504,27 @@ export default function Produk() {
                   )}
                 </SelectContent>
               </Select>
+            </div>
+
+            {/* Supplier — opsional, boleh dikosongkan */}
+            <div className="space-y-1.5">
+              <Label>
+                Supplier
+                <span className="ml-1 text-[10px] text-muted-foreground font-normal">(opsional)</span>
+              </Label>
+              <SearchableSelect
+                value={supplierId}
+                onChange={setSupplierId}
+                placeholder="Tanpa supplier"
+                searchPlaceholder="Cari supplier..."
+                options={[
+                  { value: '', label: 'Tanpa Supplier' },
+                  ...suppliers.map((s: { id: number; name: string }) => ({
+                    value: s.id.toString(),
+                    label: s.name,
+                  })),
+                ]}
+              />
             </div>
 
             <div className="space-y-1.5">

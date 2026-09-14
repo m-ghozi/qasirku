@@ -7,6 +7,7 @@ export interface Product {
   name: string;
   sku: string;
   categoryId: number;
+  supplierId: number | null;
   price: number;
   hpp: number;
   stock: number;
@@ -25,12 +26,18 @@ export interface Product {
     color: string;
     icon: string;
   };
+  supplier?: {
+    id: number;
+    name: string;
+  } | null;
 }
 
 export interface CreateProductPayload {
   name: string;
   sku: string;
   categoryId: number;
+  // null dikirim eksplisit saat supplier dikosongkan
+  supplierId?: number | null;
   price: number;
   hpp: number;
   stock?: number;

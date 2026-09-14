@@ -35,6 +35,9 @@ vi.mock('@/hooks/use-categories', () => ({
 vi.mock('@/hooks/use-units', () => ({
   useUnits: () => ({ data: [{ name: 'pcs', isDefault: true }] }),
 }));
+vi.mock('@/hooks/use-suppliers', () => ({
+  useSuppliers: () => ({ data: [{ id: 7, name: 'CV Sumber Makmur' }] }),
+}));
 // Komponen kamera/scanner berat — stub agar tidak load di jsdom
 vi.mock('@/components/BarcodeScanner', () => ({ default: () => null }));
 vi.mock('@/components/CameraCapture', () => ({ default: () => null }));
@@ -125,5 +128,39 @@ describe('Produk — kolom margin', () => {
     expect(payload.hpp).toBe(10000);
     expect(payload).not.toHaveProperty('margin');
     expect(payload).not.toHaveProperty('marginPercent');
+  });
+});
+
+describe('Produk — supplier opsional', () => {
+  /** Isi kolom wajib, lalu kembalikan tombol simpan. */
+  function fillRequiredFields() {
+    openAddDialog();
+    fireEvent.change(screen.getByPlaceholderText('Contoh: Nasi Goreng'), {
+      target: { value: 'Teh Manis' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('Wajib diisi, contoh: NG001'), {
+      target: { value: 'TM001' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('15.000'), { target: { value: '15000' } });
+  }
+
+  it('mengirim supplierId saat supplier dipilih', () => {
+    fillRequiredFields();
+
+    fireEvent.click(screen.getByRole('button', { name: /^tanpa supplier$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sumber makmur/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^tambah produk$/i }));
+
+    expect(createMutate).toHaveBeenCalledTimes(1);
+    expect(createMutate.mock.calls[0][0].supplierId).toBe(7);
+  });
+
+  it('mengirim null saat supplier tidak dipilih', () => {
+    fillRequiredFields();
+
+    fireEvent.click(screen.getByRole('button', { name: /^tambah produk$/i }));
+
+    expect(createMutate).toHaveBeenCalledTimes(1);
+    expect(createMutate.mock.calls[0][0].supplierId).toBeNull();
   });
 });
