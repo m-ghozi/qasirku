@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ArrowDownToLine, Plus, ChevronLeft } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,12 +12,14 @@ import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import LockedPage from '@/components/LockedPage';
-import { useStockIn, useCreateStockIn } from '@/hooks/use-stock';
+import { useStockInPaginated, useCreateStockIn } from '@/hooks/use-stock';
 import { useSuppliers } from '@/hooks/use-suppliers';
 import { useProducts } from '@/hooks/use-products';
 import NumberInput from '@/components/NumberInput';
 import SearchableSelect from '@/components/SearchableSelect';
 import ProductPicker from '@/components/ProductPicker';
+import Paginator from '@/components/Paginator';
+import { DEFAULT_PAGE_SIZE } from '@/services/pagination';
 
 export default function StockInPage() {
   const { can } = useAuth();
@@ -30,19 +32,41 @@ export default function StockInPage() {
   const [notes, setNotes] = useState('');
   const [expireDate, setExpireDate] = useState('');
   const [filterSupplier, setFilterSupplier] = useState('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState<number>(DEFAULT_PAGE_SIZE);
 
-  const { data: stockIns = [] } = useStockIn();
+  // Daftar riwayat kini ber-paginasi. `useProducts()` tetap dipakai utuh untuk
+  // ProductPicker di dialog — picker perlu seluruh produk, bukan satu halaman.
+  const { data } = useStockInPaginated({
+    page,
+    limit,
+    supplierId: filterSupplier === 'all' ? undefined : Number(filterSupplier),
+    from: dateFrom || undefined,
+    to: dateTo || undefined,
+  });
+  const stockIns = data?.items ?? [];
+  const meta = data?.meta;
   const { data: products = [] } = useProducts();
   const { data: suppliers = [] } = useSuppliers();
   const createStockIn = useCreateStockIn();
 
+  // Kriteria berubah → mulai dari halaman 1.
+  useEffect(() => {
+    setPage(1);
+  }, [filterSupplier, dateFrom, dateTo, limit]);
+
+  // Filter menyempit / data terhapus bisa menyisakan halaman di luar rentang.
+  useEffect(() => {
+    if (meta && meta.totalPages > 0 && page > meta.totalPages) {
+      setPage(meta.totalPages);
+    }
+  }, [meta, page]);
+
   if (!can('manage_stock_inout')) {
     return <LockedPage title="Stock In" permissionLabel="Stock In / Stock Out" />;
   }
-
-  const filtered = stockIns.filter(si =>
-    filterSupplier === 'all' || si.supplierId === Number(filterSupplier)
-  );
 
   const openAdd = () => {
     setProductId(''); setSupplierId(''); setQuantity(''); setExpireDate(''); setBuyPrice(''); setNotes('');
@@ -100,16 +124,47 @@ export default function StockInPage() {
         ]}
       />
 
-      <p className="text-xs text-muted-foreground">{filtered.length} catatan</p>
+      <div className="flex items-center gap-2">
+        <Input
+          type="date"
+          value={dateFrom}
+          onChange={e => setDateFrom(e.target.value)}
+          className="h-10"
+          aria-label="Dari tanggal"
+        />
+        <span className="text-xs text-muted-foreground shrink-0">s/d</span>
+        <Input
+          type="date"
+          value={dateTo}
+          onChange={e => setDateTo(e.target.value)}
+          className="h-10"
+          aria-label="Sampai tanggal"
+        />
+        {(dateFrom || dateTo) && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-10 shrink-0"
+            onClick={() => {
+              setDateFrom('');
+              setDateTo('');
+            }}
+          >
+            Reset
+          </Button>
+        )}
+      </div>
 
-      {filtered.length === 0 ? (
+      <p className="text-xs text-muted-foreground">{meta?.total ?? 0} catatan</p>
+
+      {stockIns.length === 0 ? (
         <div className="text-center py-12">
           <ArrowDownToLine className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
           <p className="text-sm text-muted-foreground">Belum ada data stock in</p>
         </div>
       ) : (
         <div className="space-y-2">
-          {filtered.map(si => (
+          {stockIns.map(si => (
             <Card key={si.id} className="border-0 shadow-sm">
               <CardContent className="p-3">
                 <div className="flex items-start justify-between">
@@ -155,6 +210,18 @@ export default function StockInPage() {
             </Card>
           ))}
         </div>
+      )}
+
+      {meta && meta.total > 0 && (
+        <Paginator
+          page={page}
+          limit={limit}
+          total={meta.total}
+          totalPages={meta.totalPages}
+          onPageChange={setPage}
+          onLimitChange={setLimit}
+          itemLabel="catatan"
+        />
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

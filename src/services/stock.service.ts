@@ -1,4 +1,5 @@
 import api from '@/lib/api';
+import type { Paginated } from './pagination';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -76,12 +77,27 @@ export interface CreateStockOutPayload {
   notes?: string;
 }
 
+export interface StockListParams {
+  page?: number;
+  limit?: number;
+  /** Hanya dipakai endpoint stock in. */
+  supplierId?: number;
+  /** Tanggal 'YYYY-MM-DD'; berlaku sebagai rentang inklusif. */
+  from?: string;
+  to?: string;
+}
+
 // ── Service ───────────────────────────────────────────────────────────────────
 
 export const stockService = {
   getAllStockIn: async (from?: string): Promise<StockIn[]> => {
     const { data } = await api.get('/stocks/in', { params: from ? { from } : undefined });
     return data.data;
+  },
+
+  getAllStockInPaginated: async (params: StockListParams = {}): Promise<Paginated<StockIn>> => {
+    const { data } = await api.get('/stocks/in', { params });
+    return { items: data.data, meta: data.meta };
   },
 
   createStockIn: async (payload: CreateStockInPayload): Promise<StockIn> => {
@@ -92,6 +108,11 @@ export const stockService = {
   getAllStockOut: async (from?: string): Promise<StockOut[]> => {
     const { data } = await api.get('/stocks/out', { params: from ? { from } : undefined });
     return data.data;
+  },
+
+  getAllStockOutPaginated: async (params: StockListParams = {}): Promise<Paginated<StockOut>> => {
+    const { data } = await api.get('/stocks/out', { params });
+    return { items: data.data, meta: data.meta };
   },
 
   createStockOut: async (payload: CreateStockOutPayload): Promise<StockOut> => {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ArrowUpFromLine, Plus, ChevronLeft } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,10 +12,12 @@ import { id } from 'date-fns/locale';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/use-auth';
 import LockedPage from '@/components/LockedPage';
-import { useStockOut, useCreateStockOut } from '@/hooks/use-stock';
+import { useStockOutPaginated, useCreateStockOut } from '@/hooks/use-stock';
 import { useProducts } from '@/hooks/use-products';
 import ProductPicker from '@/components/ProductPicker';
 import NumberInput from '@/components/NumberInput';
+import Paginator from '@/components/Paginator';
+import { DEFAULT_PAGE_SIZE } from '@/services/pagination';
 
 const REASONS = ['Rusak', 'Hilang', 'Kadaluarsa', 'Retur ke Supplier', 'Pemakaian Sendiri', 'Lainnya'];
 
@@ -28,9 +30,34 @@ export default function StockOutPage() {
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
 
-  const { data: stockOuts = [] } = useStockOut();
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState<number>(DEFAULT_PAGE_SIZE);
+
+  // Riwayat ber-paginasi; `useProducts()` tetap penuh untuk ProductPicker & cek stok.
+  const { data } = useStockOutPaginated({
+    page,
+    limit,
+    from: dateFrom || undefined,
+    to: dateTo || undefined,
+  });
+  const stockOuts = data?.items ?? [];
+  const meta = data?.meta;
   const { data: products = [] } = useProducts();
   const createStockOut = useCreateStockOut();
+
+  // Rentang tanggal berubah → mulai dari halaman 1.
+  useEffect(() => {
+    setPage(1);
+  }, [dateFrom, dateTo, limit]);
+
+  // Halaman bisa melewati rentang setelah data berubah; tarik ke halaman valid.
+  useEffect(() => {
+    if (meta && meta.totalPages > 0 && page > meta.totalPages) {
+      setPage(meta.totalPages);
+    }
+  }, [meta, page]);
 
   if (!can('manage_stock_inout')) {
     return <LockedPage title="Stock Out" permissionLabel="Stock In / Stock Out" />;
@@ -84,7 +111,38 @@ export default function StockOutPage() {
         </Button>
       </div>
 
-      <p className="text-xs text-muted-foreground">{stockOuts.length} catatan</p>
+      <div className="flex items-center gap-2">
+        <Input
+          type="date"
+          value={dateFrom}
+          onChange={e => setDateFrom(e.target.value)}
+          className="h-10"
+          aria-label="Dari tanggal"
+        />
+        <span className="text-xs text-muted-foreground shrink-0">s/d</span>
+        <Input
+          type="date"
+          value={dateTo}
+          onChange={e => setDateTo(e.target.value)}
+          className="h-10"
+          aria-label="Sampai tanggal"
+        />
+        {(dateFrom || dateTo) && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-10 shrink-0"
+            onClick={() => {
+              setDateFrom('');
+              setDateTo('');
+            }}
+          >
+            Reset
+          </Button>
+        )}
+      </div>
+
+      <p className="text-xs text-muted-foreground">{meta?.total ?? 0} catatan</p>
 
       {stockOuts.length === 0 ? (
         <div className="text-center py-12">
@@ -117,6 +175,18 @@ export default function StockOutPage() {
             </Card>
           ))}
         </div>
+      )}
+
+      {meta && meta.total > 0 && (
+        <Paginator
+          page={page}
+          limit={limit}
+          total={meta.total}
+          totalPages={meta.totalPages}
+          onPageChange={setPage}
+          onLimitChange={setLimit}
+          itemLabel="catatan"
+        />
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

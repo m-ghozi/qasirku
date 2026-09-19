@@ -8,21 +8,26 @@ const createMutate = vi.hoisted(() => vi.fn());
 // Halaman Produk bergantung pada banyak hook — semuanya di-stub agar render
 // deterministik. Fokus test: keterkaitan Harga Jual / HPP / Margin %.
 vi.mock('@/hooks/use-auth', () => ({ useAuth: () => ({ can: () => true, isOwner: true }) }));
+// Fixture dibagikan ke kedua varian hook (penuh & ber-paginasi).
+const productFixture = vi.hoisted(() => ({
+  id: 1,
+  name: 'Kopi Susu',
+  sku: 'KS001',
+  categoryId: 1,
+  price: 15000,
+  hpp: 10000,
+  stock: 12,
+  unit: 'pcs',
+  isDeleted: false,
+}));
+
 vi.mock('@/hooks/use-products', () => ({
-  useProducts: () => ({
-    data: [
-      {
-        id: 1,
-        name: 'Kopi Susu',
-        sku: 'KS001',
-        categoryId: 1,
-        price: 15000,
-        hpp: 10000,
-        stock: 12,
-        unit: 'pcs',
-        isDeleted: false,
-      },
-    ],
+  // Cashier & ProductPicker memakai daftar penuh…
+  useProducts: () => ({ data: [productFixture], isLoading: false }),
+  // …sedangkan halaman Produk memakai varian ber-paginasi. Fixture yang sama
+  // dibungkus meta agar sesuai kontrak { items, meta }.
+  useProductsPaginated: () => ({
+    data: { items: [productFixture], meta: { page: 1, limit: 20, total: 1, totalPages: 1 } },
     isLoading: false,
   }),
   useCreateProduct: () => ({ mutate: createMutate, isPending: false }),
