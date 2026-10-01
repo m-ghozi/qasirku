@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import { Plus, Search, Edit2, Trash2, Package as PackageIcon, Camera, X, Copy, ScanLine, Image as ImageIcon } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,13 +13,16 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { compressImage } from '@/lib/image-utils';
 import { useAuth } from '@/hooks/use-auth';
-import { useProducts, useCreateProduct, useUpdateProduct, useDeleteProduct } from '@/hooks/use-products';
+import { useProductsPaginated, useCreateProduct, useUpdateProduct, useDeleteProduct } from '@/hooks/use-products';
 import { useCategories } from '@/hooks/use-categories';
 import { useUnits } from '@/hooks/use-units';
 import { useSuppliers } from '@/hooks/use-suppliers';
+import { useDebounce } from '@/hooks/use-debounce';
+import { DEFAULT_PAGE_SIZE } from '@/services/pagination';
 import BarcodeScanner from '@/components/BarcodeScanner';
 import CameraCapture from '@/components/CameraCapture';
 import SearchableSelect from '@/components/SearchableSelect';
+import Paginator from '@/components/Paginator';
 import type { Product } from '@/services/product.service';
 import NumberInput from '@/components/NumberInput';
 import { marginPercent, priceFromMarginPercent, marginToInputValue, formatMargin } from '@/lib/pricing';
@@ -56,10 +59,37 @@ export default function Produk() {
   // Field tujuan hasil scan kamera: SKU atau Barcode.
   const [scanTarget, setScanTarget] = useState<'sku' | 'barcode' | null>(null);
 
-  const { data: products = [], isLoading: loadingProducts } = useProducts();
+  // Pencarian & filter kini dikerjakan server, jadi ketikan ditahan dulu agar
+  // tidak memicu satu request per huruf.
+  const debouncedSearch = useDebounce(search, 300);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState<number>(DEFAULT_PAGE_SIZE);
+
+  const { data, isLoading: loadingProducts } = useProductsPaginated({
+    page,
+    limit,
+    search: debouncedSearch.trim() || undefined,
+    categoryId: filterCategory === 'all' ? undefined : Number(filterCategory),
+  });
+  const products = data?.items ?? [];
+  const meta = data?.meta;
   const { data: categories = [] } = useCategories();
   const { data: units = [] } = useUnits();
   const { data: suppliers = [] } = useSuppliers();
+
+  // Setiap kali kriteria berubah, mulai lagi dari halaman 1 — kalau tidak,
+  // pengguna bisa mendarat di halaman yang tidak ada untuk hasil yang lebih sempit.
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, filterCategory, limit]);
+
+  // Menghapus/menyaring bisa menyisakan halaman yang melewati total halaman;
+  // tarik kembali ke halaman terakhir yang valid. totalPages 0 = hasil kosong.
+  useEffect(() => {
+    if (meta && meta.totalPages > 0 && page > meta.totalPages) {
+      setPage(meta.totalPages);
+    }
+  }, [meta, page]);
 
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct();
@@ -77,16 +107,6 @@ export default function Produk() {
     if (unit && !names.includes(unit)) return [...names, unit];
     return names;
   }, [units, unit]);
-
-  const filtered = products.filter(p => {
-    const q = search.toLowerCase();
-    const matchSearch =
-      p.name.toLowerCase().includes(q) ||
-      p.sku.toLowerCase().includes(q) ||
-      (p.description?.toLowerCase().includes(q) ?? false);
-    const matchCategory = filterCategory === 'all' || p.categoryId === Number(filterCategory);
-    return matchSearch && matchCategory;
-  });
 
   const getCategoryName = (catId: number) =>
     categories.find((c: { id: number; name: string }) => c.id === catId)?.name ?? '-';
@@ -263,7 +283,7 @@ export default function Produk() {
       </div>
 
       {/* Product count */}
-      <p className="text-xs text-muted-foreground">{filtered.length} produk ditemukan</p>
+      <p className="text-xs text-muted-foreground">{meta?.total ?? 0} produk ditemukan</p>
 
       {/* Loading skeleton */}
       {loadingProducts ? (
@@ -283,7 +303,7 @@ export default function Produk() {
             </Card>
           ))}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : products.length === 0 ? (
         <div className="text-center py-12">
           <PackageIcon className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
           <p className="text-sm text-muted-foreground">Belum ada produk</p>
@@ -295,7 +315,7 @@ export default function Produk() {
         </div>
       ) : (
         <div className="space-y-2">
-          {filtered.map(p => (
+          {products.map(p => (
             <Card key={p.id} className="border-0 shadow-sm">
               <CardContent className="p-3">
                 <div className="flex items-start gap-3">
@@ -378,6 +398,18 @@ export default function Produk() {
             </Card>
           ))}
         </div>
+      )}
+
+      {meta && meta.total > 0 && (
+        <Paginator
+          page={page}
+          limit={limit}
+          total={meta.total}
+          totalPages={meta.totalPages}
+          onPageChange={setPage}
+          onLimitChange={setLimit}
+          itemLabel="produk"
+        />
       )}
 
       {/* Add/Edit Dialog */}

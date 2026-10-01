@@ -1,4 +1,5 @@
 import api from '@/lib/api';
+import type { Paginated } from './pagination';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -52,10 +53,25 @@ export type UpdateProductPayload = Partial<CreateProductPayload>;
 
 // ── Service ───────────────────────────────────────────────────────────────────
 
+export interface ProductListParams {
+  page?: number;
+  limit?: number;
+  /** Dicocokkan ke nama, SKU, dan deskripsi (dilakukan di server). */
+  search?: string;
+  categoryId?: number;
+}
+
 export const productService = {
   getAll: async (): Promise<Product[]> => {
     const { data } = await api.get('/products');
     return data.data;
+  },
+
+  // Halaman produk untuk halaman kelola produk. `getAll` di atas tetap dipakai
+  // Cashier/ProductPicker yang butuh seluruh daftar untuk pencarian lokal.
+  getPaginated: async (params: ProductListParams = {}): Promise<Paginated<Product>> => {
+    const { data } = await api.get('/products', { params });
+    return { items: data.data, meta: data.meta };
   },
 
   getById: async (id: number): Promise<Product> => {
