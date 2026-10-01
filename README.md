@@ -1,6 +1,6 @@
 # 🧾 QasirKu
 
-Aplikasi Point of Sale (POS) Progressive Web App gratis dan open-source yang dirancang untuk Usaha Mikro, Kecil, dan Menengah (UMKM) di Indonesia. Kini hadir dengan arsitektur **Client-Server** terpusat untuk sinkronisasi data yang andal, aman, dan kolaboratif bagi multi-user (owner & staff).
+Aplikasi Point of Sale (POS) Progressive Web App gratis dan open-source yang dirancang untuk Usaha Mikro, Kecil, dan Menengah (UMKM) di Indonesia. Kini hadir dengan arsitektur **Client-Server** terpusat. Backend aplikasi ini tersedia di [@m-ghozi/qasirku-backend](https://github.com/m-ghozi/qasirku-backend).
 
 ---
 
@@ -9,12 +9,12 @@ Aplikasi Point of Sale (POS) Progressive Web App gratis dan open-source yang dir
 - **POS / Kasir** — Antarmuka kasir yang lengkap dengan keranjang belanja, diskon per item & diskon transaksi, pemilihan metode pembayaran, kalkulasi kembalian otomatis, serta pemilihan pelanggan.
 - **Open Bill** — Simpan transaksi sebagai open bill untuk diselesaikan nanti, lengkap dengan nama pelanggan, nomor meja, catatan per item, dan keterangan tambahan yang dicetak pada struk.
 - **Manajemen Pelanggan** — CRUD data pelanggan (nama, nomor HP, email, alamat, catatan) lengkap dengan ringkasan transaksi (total belanja, frekuensi belanja) dan riwayat transaksi mereka.
-- **Manajemen Pengeluaran** — Pencatatan pengeluaran operasional bisnis berdasarkan kategori dan metode pembayaran, dilengkapi visualisasi kartu ringkasan total pengeluaran dan filter rentang waktu (hari ini, 7 hari, 30 hari, bulan ini, semua).
+- **Manajemen Pengeluaran** — Pencatatan pengeluaran operasional bisnis berdasarkan kategori dan metode pembayaran, dilengkapi visualisasi kartu ringkasan total pengeluaran dan filter rentang waktu [...]
 - **Manajemen Produk & SKU** — Manajemen katalog produk lengkap dengan kategori, SKU (unik & wajib), satuan, deskripsi, foto produk, dan dukungan barcode.
-- **Manajemen Stok & HPP (COGS)** — Pencatatan barang masuk (Stock In) dari supplier dan barang keluar non-penjualan (Stock Out - rusak, hilang, dll). Harga Pokok Penjualan (HPP) dihitung otomatis menggunakan metode *Weighted Average* setiap kali stok baru ditambahkan.
-- **Laporan & Analitik** — Grafik penjualan 7/30 hari terakhir, produk terlaris, total pendapatan, margin keuntungan bersih, laporan pengeluaran, serta audit log mutasi stok. Laporan dapat diekspor ke file **Excel (.xlsx)** langsung dari sisi klien.
+- **Manajemen Stok & HPP (COGS)** — Pencatatan barang masuk (Stock In) dari supplier dan barang keluar non-penjualan (Stock Out - rusak, hilang, dll). Harga Pokok Penjualan (HPP) dihitung otomatis m[...]
+- **Laporan & Analitik** — Grafik penjualan 7/30 hari terakhir, produk terlaris, total pendapatan, margin keuntungan bersih, laporan pengeluaran, serta audit log mutasi stok. Laporan dapat diekspor [...]
 - **Riwayat Transaksi** — Halaman daftar seluruh transaksi penjualan beserta detail item dan struk untuk dicetak/dikirim ulang.
-- **Multi-User & Hak Akses** — Autentikasi dengan peran Owner & Staff. Owner dapat mengatur hak akses spesifik bagi staff (seperti mengelola produk, melihat laporan, mengakses pengeluaran, dll). Staff masuk menggunakan PIN 4-6 digit yang aman.
+- **Multi-User & Hak Akses** — Autentikasi dengan peran Owner & Staff. Owner dapat mengatur hak akses spesifik bagi staff (seperti mengelola produk, melihat laporan, mengakses pengeluaran, dll). Sta[...]
 - **Barcode Scanning** — Pemindaian barcode produk langsung menggunakan kamera perangkat (mendukung EAN-13, EAN-8, UPC-A, UPC-E, Code-128, dll) atau input manual keyboard.
 - **PWA (Progressive Web App)** — Dapat diinstal langsung ke layar utama perangkat (homescreen) di Android, iOS, maupun Desktop dengan dukungan Service Worker (Workbox).
 - **Tema Kustom & Dark Mode** — Dukungan penuh untuk mode gelap (Dark Mode) serta kustomisasi warna aksen tema aplikasi (tersedia beberapa pilihan warna).
@@ -171,8 +171,8 @@ src/
 
 Aplikasi ini menggunakan database terpusat yang diakses melalui REST API server backend.
 
-- **Otorisasi JWT**: Setelah login sukses, token JWT disimpan di `localStorage` klien. Token ini disisipkan secara otomatis dalam header `Authorization: Bearer <token>` pada setiap permintaan data ke backend melalui Axios interceptor.
-- **Otomatis Keluar (Session Expiry)**: Jika backend merespons dengan status `401 Unauthorized` atau `403 Forbidden` (misal token kedaluwarsa atau akun dinonaktifkan oleh owner), interceptor klien akan otomatis menghapus token dari penyimpanan lokal dan mengarahkan pengguna kembali ke halaman `/login`.
+- **Otorisasi JWT**: Setelah login sukses, token JWT disimpan di `localStorage` klien. Token ini disisipkan secara otomatis dalam header `Authorization: Bearer <token>` pada setiap permintaan data ke [...]
+- **Otomatis Keluar (Session Expiry)**: Jika backend merespons dengan status `401 Unauthorized` atau `403 Forbidden` (misal token kedaluwarsa atau akun dinonaktifkan oleh owner), interceptor klien aka[...]
 - **HPP (Harga Pokok Penjualan - COGS)**: Perhitungan HPP dilakukan oleh server backend saat transaksi penerimaan barang masuk (Stock In) disubmit, menggunakan metode *Weighted Average*:
   $$\text{HPP Baru} = \frac{(\text{Stok Lama} \times \text{HPP Lama}) + (\text{Qty Baru} \times \text{Harga Beli})}{\text{Stok Lama} + \text{Qty Baru}}$$
 
