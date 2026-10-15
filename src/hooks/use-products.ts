@@ -47,6 +47,24 @@ export function useProduct(id: number) {
   });
 }
 
+/**
+ * SKU usulan untuk kategori terpilih. `categoryId` null/kosong berarti query
+ * dimatikan — dipakai halaman Produk untuk hanya memanggilnya saat dialog
+ * tambah produk terbuka.
+ *
+ * staleTime 0 disengaja: begitu satu produk dibuat, usulan untuk kategori yang
+ * sama harus ikut naik. Refresh-nya ditangani invalidateQueries ber-prefix
+ * PRODUCT_KEY di setiap mutasi produk.
+ */
+export function useNextSku(categoryId?: number | null) {
+  return useQuery({
+    queryKey: [...PRODUCT_KEY, 'next-sku', categoryId],
+    queryFn: () => productService.getNextSku(categoryId as number),
+    enabled: !!categoryId,
+    staleTime: 0,
+  });
+}
+
 // ── Mutations ─────────────────────────────────────────────────────────────────
 
 export function useCreateProduct() {

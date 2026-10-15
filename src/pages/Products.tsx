@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { compressImage } from '@/lib/image-utils';
 import { useAuth } from '@/hooks/use-auth';
-import { useProductsPaginated, useCreateProduct, useUpdateProduct, useDeleteProduct } from '@/hooks/use-products';
+import { useProductsPaginated, useCreateProduct, useUpdateProduct, useDeleteProduct, useNextSku } from '@/hooks/use-products';
 import { useCategories } from '@/hooks/use-categories';
 import { useUnits } from '@/hooks/use-units';
 import { useSuppliers } from '@/hooks/use-suppliers';
@@ -40,6 +40,9 @@ export default function Produk() {
   // Form state
   const [name, setName] = useState('');
   const [sku, setSku] = useState('');
+  // true begitu pengguna menyentuh kolom SKU sendiri (ketik, scan, atau hapus
+  // isinya). Selama false, SKU boleh diisi ulang otomatis oleh sistem.
+  const [skuTouched, setSkuTouched] = useState(false);
   const [categoryId, setCategoryId] = useState<string>('');
   const [supplierId, setSupplierId] = useState<string>('');
   const [price, setPrice] = useState('');
@@ -95,6 +98,18 @@ export default function Produk() {
   const updateProduct = useUpdateProduct();
   const deleteProduct = useDeleteProduct();
 
+  // SKU usulan hanya diminta saat dialog tambah produk terbuka — produk lama
+  // sudah punya SKU sendiri dan tidak boleh ditimpa.
+  const nextSkuQuery = useNextSku(dialogOpen && !editProduct ? Number(categoryId) || null : null);
+
+  useEffect(() => {
+    // Selama kolomnya belum disentuh, isinya mengikuti usulan server apa adanya
+    // — termasuk dikosongkan sebentar saat pengguna berganti kategori, supaya
+    // tidak ada SKU kategori lama yang terlanjur tersimpan.
+    if (!dialogOpen || editProduct || skuTouched) return;
+    setSku(nextSkuQuery.data ?? '');
+  }, [dialogOpen, editProduct, skuTouched, nextSkuQuery.data]);
+
   // Default unit dari master, fallback ke 'pcs'
   const defaultUnit = useMemo(
     () => units.find((u: { isDefault: boolean }) => u.isDefault)?.name ?? 'pcs',
@@ -117,6 +132,9 @@ export default function Produk() {
     setEditProduct(null);
     setName('');
     setSku('');
+    // Auto-isi dibuka lagi untuk produk berikutnya; efek di atas yang akan
+    // mengisi kolomnya begitu usulan dari server tiba.
+    setSkuTouched(false);
     setCategoryId(categories?.[0]?.id?.toString() ?? '');
     setSupplierId('');
     setPrice('');
@@ -146,6 +164,51 @@ export default function Produk() {
     setPhoto(p.photo);
     setDialogOpen(true);
   };
+
+  /**
+   * Kolom SKU dianggap "disentuh" begitu pengguna mengubahnya sendiri — mengetik,
+   * hasil scan, maupun menghapus isinya. Sejak itu auto-isi berhenti menimpanya,
+   * jadi mengosongkan kolom adalah cara sah untuk mengisi SKU manual.
+   */
+  const handleSkuChange = (value: string) => {
+    setSku(value);
+    setSkuTouched(true);
+  };
+
+  const clearSku = () => handleSkuChange('');
+
+  /** Mengembalikan kolom ke usulan otomatis, mis. setelah terlanjur diketik manual. */
+  const restoreAutoSku = () => {
+    setSkuTouched(false);
+    // Usulan belum tentu sudah ada di cache (kategori baru dipilih) — minta ulang
+    // supaya efek pengisi tidak menunggu tanpa hasil.
+    if (!nextSkuQuery.data) nextSkuQuery.refetch();
+  };
+
+  // Keterangan di bawah kolom SKU: dari mana isinya berasal, dan cara mengambil
+  // alih secara manual.
+  const skuHint = (() => {
+    if (editProduct) return null;
+    if (skuTouched) {
+      return (
+        <>
+          Diisi manual.{' '}
+          <button
+            type="button"
+            onClick={restoreAutoSku}
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            Pakai SKU otomatis
+          </button>
+        </>
+      );
+    }
+    if (nextSkuQuery.isFetching) return 'Menyiapkan SKU otomatis…';
+    if (nextSkuQuery.data) {
+      return 'Terisi otomatis dari SKU terakhir kategori ini. Hapus isinya untuk mengisi manual.';
+    }
+    return null;
+  })();
 
   /**
    * Harga Jual, HPP, dan Margin % saling terhubung. Aturannya sederhana:
@@ -496,12 +559,27 @@ export default function Produk() {
             <div className="space-y-1.5">
               <Label>SKU *</Label>
               <div className="flex gap-2">
-                <Input
-                  value={sku}
-                  onChange={e => setSku(e.target.value)}
-                  placeholder="Wajib diisi, contoh: NG001"
-                  className="h-11 flex-1"
-                />
+                <div className="relative flex-1">
+                  <Input
+                    value={sku}
+                    onChange={e => handleSkuChange(e.target.value)}
+                    placeholder="Wajib diisi, contoh: NG001"
+                    className="h-11 pr-10"
+                  />
+                  {/* Tombol hapus: mengosongkan kolom sekaligus mematikan
+                      auto-isi, sehingga pengguna bisa mengetik SKU sendiri. */}
+                  {sku && (
+                    <button
+                      type="button"
+                      onClick={clearSku}
+                      title="Hapus SKU (isi manual)"
+                      aria-label="Hapus SKU"
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
                 <Button
                   type="button"
                   variant="outline"
@@ -513,6 +591,7 @@ export default function Produk() {
                   <ScanLine className="w-4 h-4" />
                 </Button>
               </div>
+              {skuHint && <p className="text-xs text-muted-foreground">{skuHint}</p>}
             </div>
 
             {/* Kategori — full row */}
@@ -734,7 +813,8 @@ export default function Produk() {
         onClose={() => setScanTarget(null)}
         onScan={(value) => {
           const v = value.trim();
-          if (scanTarget === 'sku') setSku(v);
+          // Lewat handleSkuChange agar hasil scan juga dianggap isian manual.
+          if (scanTarget === 'sku') handleSkuChange(v);
           else if (scanTarget === 'barcode') setBarcode(v);
           setScanTarget(null);
         }}
