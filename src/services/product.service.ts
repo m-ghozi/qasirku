@@ -79,6 +79,16 @@ export const productService = {
     return data.data;
   },
 
+  /**
+   * SKU usulan untuk produk baru di kategori ini — lanjutan dari SKU terakhir
+   * yang dipakai kategori tersebut. Dihitung di server karena daftar produk di
+   * halaman ini ber-paginasi, jadi SKU terakhir belum tentu ada di sisi klien.
+   */
+  getNextSku: async (categoryId: number): Promise<string> => {
+    const { data } = await api.get('/products/next-sku', { params: { categoryId } });
+    return data.data.sku;
+  },
+
   create: async (payload: CreateProductPayload): Promise<Product> => {
     const { data } = await api.post('/products', payload);
     return data.data;

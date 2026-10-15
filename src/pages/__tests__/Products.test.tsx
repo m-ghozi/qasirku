@@ -5,6 +5,12 @@ import { MemoryRouter } from 'react-router-dom';
 // Ditangkap agar payload yang dikirim ke backend bisa diperiksa.
 const createMutate = vi.hoisted(() => vi.fn());
 
+// Usulan SKU dari server — bisa diubah per-test untuk menguji auto-isi.
+const nextSkuState = vi.hoisted(() => ({
+  data: 'ATK-036' as string | undefined,
+  isFetching: false,
+}));
+
 // Halaman Produk bergantung pada banyak hook — semuanya di-stub agar render
 // deterministik. Fokus test: keterkaitan Harga Jual / HPP / Margin %.
 vi.mock('@/hooks/use-auth', () => ({ useAuth: () => ({ can: () => true, isOwner: true }) }));
@@ -33,6 +39,11 @@ vi.mock('@/hooks/use-products', () => ({
   useCreateProduct: () => ({ mutate: createMutate, isPending: false }),
   useUpdateProduct: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteProduct: () => ({ mutate: vi.fn(), isPending: false }),
+  useNextSku: () => ({
+    data: nextSkuState.data,
+    isFetching: nextSkuState.isFetching,
+    refetch: vi.fn(),
+  }),
 }));
 vi.mock('@/hooks/use-categories', () => ({
   useCategories: () => ({ data: [{ id: 1, name: 'Minuman', icon: '🥤', color: '#f00' }] }),
@@ -69,6 +80,8 @@ function openAddDialog() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  nextSkuState.data = 'ATK-036';
+  nextSkuState.isFetching = false;
 });
 
 describe('Produk — kolom margin', () => {
@@ -167,5 +180,53 @@ describe('Produk — supplier opsional', () => {
 
     expect(createMutate).toHaveBeenCalledTimes(1);
     expect(createMutate.mock.calls[0][0].supplierId).toBeNull();
+  });
+});
+
+describe('Produk — SKU otomatis', () => {
+  const skuInput = () => screen.getByPlaceholderText('Wajib diisi, contoh: NG001');
+
+  it('mengisi kolom SKU dari usulan server saat dialog tambah dibuka', () => {
+    openAddDialog();
+    expect(skuInput()).toHaveValue('ATK-036');
+  });
+
+  it('kolom kosong kalau server belum memberi usulan', () => {
+    nextSkuState.data = undefined;
+    openAddDialog();
+    expect(skuInput()).toHaveValue('');
+  });
+
+  it('menghapus isi SKU mematikan auto-isi sehingga bisa diisi manual', () => {
+    openAddDialog();
+
+    fireEvent.click(screen.getByRole('button', { name: /hapus sku/i }));
+    expect(skuInput()).toHaveValue('');
+
+    fireEvent.change(skuInput(), { target: { value: 'TM-001' } });
+    expect(skuInput()).toHaveValue('TM-001');
+  });
+
+  it('tombol "Pakai SKU otomatis" mengembalikan usulan server', () => {
+    openAddDialog();
+
+    fireEvent.change(skuInput(), { target: { value: 'MANUAL' } });
+    expect(skuInput()).toHaveValue('MANUAL');
+
+    fireEvent.click(screen.getByRole('button', { name: /pakai sku otomatis/i }));
+    expect(skuInput()).toHaveValue('ATK-036');
+  });
+
+  it('SKU tetap wajib — tombol simpan mati saat kolomnya dikosongkan', () => {
+    openAddDialog();
+    fireEvent.change(screen.getByPlaceholderText('Contoh: Nasi Goreng'), {
+      target: { value: 'Teh Manis' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('15.000'), { target: { value: '15000' } });
+
+    expect(screen.getByRole('button', { name: /^tambah produk$/i })).not.toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: /hapus sku/i }));
+    expect(screen.getByRole('button', { name: /^tambah produk$/i })).toBeDisabled();
   });
 });
