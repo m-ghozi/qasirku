@@ -226,10 +226,18 @@ describe('stockService', () => {
     expect(api.post).toHaveBeenCalledWith('/stocks/out', payload);
   });
 
-  it('getReport → GET /stocks/report?period', async () => {
+  it('getReport → GET /stocks/report dengan parameter rentang', async () => {
     resolveData('get', { summary: {} });
-    await stockService.getReport('30');
-    expect(api.get).toHaveBeenCalledWith('/stocks/report', { params: { period: '30' } });
+    await stockService.getReport({ range: '30' });
+    expect(api.get).toHaveBeenCalledWith('/stocks/report', { params: { range: '30' } });
+  });
+
+  it('getMovements → GET /stocks/report/movements dengan rentang bebas', async () => {
+    resolveData('get', { products: [] });
+    await stockService.getMovements({ from: '2026-01-01', to: '2026-01-31' });
+    expect(api.get).toHaveBeenCalledWith('/stocks/report/movements', {
+      params: { from: '2026-01-01', to: '2026-01-31' },
+    });
   });
 });
 

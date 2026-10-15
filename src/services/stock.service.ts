@@ -14,7 +14,8 @@ export interface StockIn {
   date: string;
   notes?: string;
   createdById?: number;
-  product?: { id: number; name: string; unit: string };
+  /** Relasi yang dikirim endpoint daftar: { name, sku }. */
+  product?: { name: string; sku: string };
   supplier?: { id: number; name: string };
   createdBy?: { id: number; name: string };
 }
@@ -27,11 +28,25 @@ export interface StockOut {
   date: string;
   notes?: string;
   createdById?: number;
-  product?: { id: number; name: string; unit: string };
+  /** Relasi yang dikirim endpoint daftar: { name, sku, stock }. */
+  product?: { name: string; sku: string; stock: number };
   createdBy?: { id: number; name: string };
 }
 
+/** Rentang laporan: preset cepat, atau rentang bebas from/to ('YYYY-MM-DD'). */
+export interface StockRangeParams {
+  range?: string;
+  from?: string;
+  to?: string;
+}
+
+export interface StockRange {
+  from: string;
+  to: string;
+}
+
 export interface StockReport {
+  range: StockRange;
   summary: {
     totalStockIn: number;
     totalStockOut: number;
@@ -50,6 +65,42 @@ export interface StockReport {
     expired: ExpiringBatch[];
     expiringSoon: ExpiringBatch[];
   };
+}
+
+/** Satu baris kartu stok — rekap mutasi satu produk dalam rentang. */
+export interface StockMovementRow {
+  productId: number;
+  name: string;
+  sku: string;
+  unit: string;
+  categoryName: string | null;
+  hpp: number;
+  openingStock: number;
+  stockIn: number;
+  sold: number;
+  adjustIn: number;
+  adjustOut: number;
+  closingStock: number;
+  closingValue: number;
+  /** Stok sistem saat ini — untuk merekonsiliasi bila rentang berakhir hari ini. */
+  currentStock: number;
+}
+
+export interface StockMovementTotals {
+  openingStock: number;
+  stockIn: number;
+  sold: number;
+  adjustIn: number;
+  adjustOut: number;
+  closingStock: number;
+  closingValue: number;
+  currentStock: number;
+}
+
+export interface StockMovements {
+  range: StockRange;
+  totals: StockMovementTotals;
+  products: StockMovementRow[];
 }
 
 export interface ExpiringBatch {
@@ -120,8 +171,14 @@ export const stockService = {
     return data.data;
   },
 
-  getReport: async (period: string): Promise<StockReport> => {
-    const { data } = await api.get('/stocks/report', { params: { period } });
+  getReport: async (params: StockRangeParams): Promise<StockReport> => {
+    const { data } = await api.get('/stocks/report', { params });
+    return data.data;
+  },
+
+  /** Kartu stok: rekap mutasi per produk untuk satu rentang. */
+  getMovements: async (params: StockRangeParams): Promise<StockMovements> => {
+    const { data } = await api.get('/stocks/report/movements', { params });
     return data.data;
   },
 };

@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import {
   stockService,
   type StockListParams,
+  type StockRangeParams,
   type CreateStockInPayload,
   type CreateStockOutPayload,
 } from '@/services/stock.service';
@@ -13,6 +14,7 @@ import { PRODUCT_KEY } from './use-products';
 export const STOCK_IN_KEY = ['stocks', 'in'] as const;
 export const STOCK_OUT_KEY = ['stocks', 'out'] as const;
 export const STOCK_REPORT_KEY = ['stocks', 'report'] as const;
+export const STOCK_MOVEMENTS_KEY = ['stocks', 'movements'] as const;
 
 // Sub-key untuk daftar ber-paginasi. Mutasi meng-invalidate STOCK_IN_KEY /
 // STOCK_OUT_KEY, dan invalidateQueries mencocokkan prefix — jadi daftar ini ikut
@@ -54,10 +56,20 @@ export function useStockOutPaginated(params: StockListParams) {
   });
 }
 
-export function useStockReport(period: '7' | '30') {
+export function useStockReport(params: StockRangeParams, enabled = true) {
   return useQuery({
-    queryKey: [...STOCK_REPORT_KEY, period],
-    queryFn: () => stockService.getReport(period),
+    queryKey: [...STOCK_REPORT_KEY, params],
+    queryFn: () => stockService.getReport(params),
+    enabled,
+  });
+}
+
+/** Kartu stok per produk untuk satu rentang. */
+export function useStockMovements(params: StockRangeParams, enabled = true) {
+  return useQuery({
+    queryKey: [...STOCK_MOVEMENTS_KEY, params],
+    queryFn: () => stockService.getMovements(params),
+    enabled,
   });
 }
 
