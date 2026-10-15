@@ -1,6 +1,31 @@
 import { format, endOfDay, startOfDay } from 'date-fns';
-import type * as ExcelJSTypes from 'exceljs';
 import api from '@/lib/api';
+import {
+    BRAND,
+    BRAND_SOFT,
+    INK,
+    MUTED,
+    MONEY_FMT,
+    INT_FMT,
+    PCT_FMT,
+    THIN_BORDER,
+    FILL,
+    saveFile,
+    sanitizeForFileName,
+    loadExcelJS,
+    writeSheetTitle,
+    styleHeaderRow,
+    styleBodyRow,
+    styleTotalRow,
+    addSectionRow,
+    applyMoneyFormat,
+    pctValue,
+    applyPageSetup,
+    applyTableChrome,
+    type Workbook,
+    type Worksheet,
+    type SheetContext,
+} from '@/lib/excel-style';
 
 /**
  * Client-side Excel export untuk halaman Laporan.
@@ -19,33 +44,6 @@ export interface ExportResult {
     itemCount: number;
     expenseCount: number;
 }
-
-const XLSX_MIME =
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-
-// ─── Design tokens (selaras dengan tema aplikasi) ─────────────────────────────
-
-/** Warna utama (blue-700) untuk bar judul & header tabel. */
-const BRAND = 'FF1D4ED8';
-/** Warna lembut (blue-50) untuk baris total / section. */
-const BRAND_SOFT = 'FFEFF6FF';
-/** Warna netral untuk baris zebra (slate-50). */
-const ZEBRA = 'FFF8FAFC';
-/** Garis tabel (gray-300). */
-const BORDER = 'FFD1D5DB';
-/** Garis header di atas latar biru (blue-200). */
-const BORDER_ON_BRAND = 'FFBFDBFE';
-/** Teks utama (slate-900). */
-const INK = 'FF0F172A';
-/** Teks sekunder (slate-500). */
-const MUTED = 'FF64748B';
-
-/** Format mata uang: ribuan dengan prefix Rp, negatif merah dalam kurung. */
-const MONEY_FMT = '"Rp"#,##0;[Red]-"Rp"#,##0';
-const INT_FMT = '#,##0';
-const PCT_FMT = '0.0%';
-
-const A4_PAPER = 9;
 
 // ─── Types (sesuai response reportService) ────────────────────────────────────
 
@@ -84,14 +82,6 @@ interface AggregatedReport {
     paymentSummary: Map<string, { amount: number; count: number }>;
     productSummary: Map<string, { name: string; quantity: number; revenue: number; profit: number }>;
     dailyChart: { date: string; revenue: number; txCount: number }[];
-}
-
-/** Konteks bersama untuk seluruh sheet (judul, periode, footer). */
-interface SheetContext {
-    storeName: string;
-    start: Date;
-    end: Date;
-    generatedAt: Date;
 }
 
 /**
@@ -167,24 +157,6 @@ async function fetchAndAggregate(start: Date, end: Date): Promise<AggregatedRepo
     return { stats, paymentSummary, productSummary, dailyChart };
 }
 
-// ─── File helpers ─────────────────────────────────────────────────────────────
-
-async function saveFile(buffer: ArrayBuffer, fileName: string): Promise<void> {
-    const blob = new Blob([buffer], { type: XLSX_MIME });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-}
-
-function sanitizeForFileName(name: string): string {
-    return name.trim().replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, '_') || 'Toko';
-}
-
 // ─── Main export function ─────────────────────────────────────────────────────
 
 export async function exportReportToExcel(rangeStart: Date, rangeEnd: Date): Promise<ExportResult> {
@@ -203,8 +175,7 @@ export async function exportReportToExcel(rangeStart: Date, rangeEnd: Date): Pro
     const report = await fetchAndAggregate(start, end);
 
     // Build workbook
-    const ExcelJSModule = await import('exceljs');
-    const ExcelJS = (ExcelJSModule as unknown as { default?: typeof ExcelJSModule }).default ?? ExcelJSModule;
+    const ExcelJS = await loadExcelJS();
     const wb = new ExcelJS.Workbook();
     wb.creator = storeName;
     wb.created = end;
@@ -225,131 +196,6 @@ export async function exportReportToExcel(rangeStart: Date, rangeEnd: Date): Pro
         txCount: report.stats.totalSalesCount,
         itemCount: 0, // API tidak return item count secara terpisah
         expenseCount: 0,
-    };
-}
-
-// ─── Styling primitives ───────────────────────────────────────────────────────
-
-type Workbook = ExcelJSTypes.Workbook;
-type Worksheet = ExcelJSTypes.Worksheet;
-type Row = ExcelJSTypes.Row;
-type Cell = ExcelJSTypes.Cell;
-
-const THIN_BORDER: Partial<ExcelJSTypes.Borders> = {
-    top: { style: 'thin', color: { argb: BORDER } },
-    left: { style: 'thin', color: { argb: BORDER } },
-    bottom: { style: 'thin', color: { argb: BORDER } },
-    right: { style: 'thin', color: { argb: BORDER } },
-};
-
-const HEADER_BORDER: Partial<ExcelJSTypes.Borders> = {
-    top: { style: 'thin', color: { argb: BORDER_ON_BRAND } },
-    left: { style: 'thin', color: { argb: BORDER_ON_BRAND } },
-    bottom: { style: 'thin', color: { argb: BORDER_ON_BRAND } },
-    right: { style: 'thin', color: { argb: BORDER_ON_BRAND } },
-};
-
-const FILL = (argb: string): ExcelJSTypes.FillPattern => ({
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb },
-});
-
-/** Baris judul + periode di atas tabel, digabung selebar tabel. */
-function writeSheetTitle(ws: Worksheet, ctx: SheetContext, title: string, span: number) {
-    const titleRow = ws.addRow([title]);
-    ws.mergeCells(titleRow.number, 1, titleRow.number, span);
-    titleRow.height = 30;
-    const titleCell = titleRow.getCell(1);
-    titleCell.font = { bold: true, size: 15, color: { argb: BRAND } };
-    titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
-
-    const subRow = ws.addRow([
-        `${ctx.storeName}  •  Periode ${format(ctx.start, 'dd/MM/yyyy')} – ${format(ctx.end, 'dd/MM/yyyy')}`,
-    ]);
-    ws.mergeCells(subRow.number, 1, subRow.number, span);
-    subRow.height = 18;
-    const subCell = subRow.getCell(1);
-    subCell.font = { size: 10, color: { argb: MUTED } };
-    subCell.alignment = { vertical: 'middle', horizontal: 'center' };
-
-    ws.addRow([]);
-}
-
-/** Header tabel: latar brand, teks putih tebal, terpusat. */
-function styleHeaderRow(row: Row, span: number) {
-    row.height = 24;
-    for (let c = 1; c <= span; c++) {
-        const cell = row.getCell(c);
-        cell.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
-        cell.fill = FILL(BRAND);
-        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-        cell.border = HEADER_BORDER;
-    }
-}
-
-/** Baris data: border tipis, zebra opsional, angka rata kanan. */
-function styleBodyRow(row: Row, span: number, opts: { zebra?: boolean; numericFrom?: number } = {}) {
-    row.height = 19;
-    const numericFrom = opts.numericFrom ?? span + 1;
-    for (let c = 1; c <= span; c++) {
-        const cell = row.getCell(c);
-        cell.border = THIN_BORDER;
-        if (opts.zebra) cell.fill = FILL(ZEBRA);
-        cell.alignment = {
-            vertical: 'middle',
-            horizontal: c >= numericFrom ? 'right' : 'left',
-        };
-    }
-}
-
-/** Baris total: tebal, latar lembut, garis atas tegas. */
-function styleTotalRow(row: Row, span: number) {
-    row.height = 22;
-    for (let c = 1; c <= span; c++) {
-        const cell = row.getCell(c);
-        cell.font = { bold: true, color: { argb: INK } };
-        cell.fill = FILL(BRAND_SOFT);
-        cell.border = { ...THIN_BORDER, top: { style: 'medium', color: { argb: BRAND } } };
-        cell.alignment = { vertical: 'middle', horizontal: c === 1 ? 'left' : 'right' };
-    }
-}
-
-/** Baris section (mis. "RINGKASAN PENJUALAN") yang digabung selebar tabel. */
-function addSectionRow(ws: Worksheet, label: string, span: number): Row {
-    const row = ws.addRow([label]);
-    ws.mergeCells(row.number, 1, row.number, span);
-    row.height = 22;
-    const cell = row.getCell(1);
-    cell.font = { bold: true, size: 11, color: { argb: BRAND } };
-    cell.fill = FILL(BRAND_SOFT);
-    cell.alignment = { vertical: 'middle', horizontal: 'left' };
-    cell.border = THIN_BORDER;
-    return row;
-}
-
-function applyMoneyFormat(row: Row, cols: number[]) {
-    for (const c of cols) row.getCell(c).numFmt = MONEY_FMT;
-}
-
-/** Rasio 0–1 (dipakai bersama numFmt persen native Excel). */
-function pctValue(val: number, total: number): number {
-    return total === 0 ? 0 : val / total;
-}
-
-/** Page setup A4 siap cetak + footer nomor halaman. */
-function applyPageSetup(ws: Worksheet, ctx: SheetContext, orientation: 'portrait' | 'landscape') {
-    ws.pageSetup = {
-        paperSize: A4_PAPER,
-        orientation,
-        fitToPage: true,
-        fitToWidth: 1,
-        fitToHeight: 0,
-        horizontalCentered: true,
-        margins: { left: 0.5, right: 0.5, top: 0.6, bottom: 0.6, header: 0.3, footer: 0.3 },
-    };
-    ws.headerFooter = {
-        oddFooter: `&L&"Calibri,Italic"${ctx.storeName} — dibuat ${format(ctx.generatedAt, 'dd/MM/yyyy HH:mm')}&R&"Calibri,Italic"Hal. &P/&N`,
     };
 }
 
@@ -484,10 +330,7 @@ function buildDailyChartSheet(wb: Workbook, ctx: SheetContext, dailyChart: Aggre
     totalRow.getCell(3).numFmt = INT_FMT;
     totalRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
 
-    if (dailyChart.length > 0) {
-        ws.autoFilter = { from: { row: headerRowNumber, column: 1 }, to: { row: totalRow.number - 1, column: SPAN } };
-    }
-    ws.views = [{ state: 'frozen', ySplit: headerRowNumber }];
+    applyTableChrome(ws, headerRowNumber, dailyChart.length > 0 ? totalRow.number - 1 : null, SPAN);
 }
 
 function buildPaymentSheet(wb: Workbook, ctx: SheetContext, report: AggregatedReport) {
@@ -530,10 +373,7 @@ function buildPaymentSheet(wb: Workbook, ctx: SheetContext, report: AggregatedRe
     totalRow.getCell(3).numFmt = INT_FMT;
     totalRow.getCell(4).numFmt = PCT_FMT;
 
-    if (sorted.length > 0) {
-        ws.autoFilter = { from: { row: headerRowNumber, column: 1 }, to: { row: totalRow.number - 1, column: SPAN } };
-    }
-    ws.views = [{ state: 'frozen', ySplit: headerRowNumber }];
+    applyTableChrome(ws, headerRowNumber, sorted.length > 0 ? totalRow.number - 1 : null, SPAN);
 }
 
 function buildTopProductsSheet(wb: Workbook, ctx: SheetContext, report: AggregatedReport) {
@@ -561,37 +401,36 @@ function buildTopProductsSheet(wb: Workbook, ctx: SheetContext, report: Aggregat
     if (sorted.length === 0) {
         const row = ws.addRow(['', 'Tidak ada data produk', '', '', '', '']);
         styleBodyRow(row, SPAN, { numericFrom: 3 });
-    } else {
-        sorted.forEach((p, i) => {
-            const row = ws.addRow([
-                i + 1,
-                p.name,
-                p.quantity,
-                p.revenue,
-                p.profit,
-                pctValue(p.profit, p.revenue),
-            ]);
-            styleBodyRow(row, SPAN, { zebra: i % 2 === 1, numericFrom: 3 });
-            row.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
-            row.getCell(3).numFmt = INT_FMT;
-            row.getCell(4).numFmt = MONEY_FMT;
-            row.getCell(5).numFmt = MONEY_FMT;
-            row.getCell(6).numFmt = PCT_FMT;
-        });
+        applyTableChrome(ws, headerRowNumber, null, SPAN);
+        return;
     }
 
-    if (sorted.length > 0) {
-        const sumRevenue = sorted.reduce((s, p) => s + p.revenue, 0);
-        const sumProfit = sorted.reduce((s, p) => s + p.profit, 0);
-        const sumQty = sorted.reduce((s, p) => s + p.quantity, 0);
-        const totalRow = ws.addRow(['', 'TOTAL', sumQty, sumRevenue, sumProfit, pctValue(sumProfit, sumRevenue)]);
-        styleTotalRow(totalRow, SPAN);
-        totalRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
-        totalRow.getCell(3).numFmt = INT_FMT;
-        applyMoneyFormat(totalRow, [4, 5]);
-        totalRow.getCell(6).numFmt = PCT_FMT;
+    sorted.forEach((p, i) => {
+        const row = ws.addRow([
+            i + 1,
+            p.name,
+            p.quantity,
+            p.revenue,
+            p.profit,
+            pctValue(p.profit, p.revenue),
+        ]);
+        styleBodyRow(row, SPAN, { zebra: i % 2 === 1, numericFrom: 3 });
+        row.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
+        row.getCell(3).numFmt = INT_FMT;
+        row.getCell(4).numFmt = MONEY_FMT;
+        row.getCell(5).numFmt = MONEY_FMT;
+        row.getCell(6).numFmt = PCT_FMT;
+    });
 
-        ws.autoFilter = { from: { row: headerRowNumber, column: 1 }, to: { row: totalRow.number - 1, column: SPAN } };
-    }
-    ws.views = [{ state: 'frozen', ySplit: headerRowNumber }];
+    const sumRevenue = sorted.reduce((s, p) => s + p.revenue, 0);
+    const sumProfit = sorted.reduce((s, p) => s + p.profit, 0);
+    const sumQty = sorted.reduce((s, p) => s + p.quantity, 0);
+    const totalRow = ws.addRow(['', 'TOTAL', sumQty, sumRevenue, sumProfit, pctValue(sumProfit, sumRevenue)]);
+    styleTotalRow(totalRow, SPAN);
+    totalRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
+    totalRow.getCell(3).numFmt = INT_FMT;
+    applyMoneyFormat(totalRow, [4, 5]);
+    totalRow.getCell(6).numFmt = PCT_FMT;
+
+    applyTableChrome(ws, headerRowNumber, totalRow.number - 1, SPAN);
 }

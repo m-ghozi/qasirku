@@ -15,7 +15,8 @@ import { useAuth } from '@/hooks/use-auth';
 import LockedPage from '@/components/LockedPage';
 import { useReport, useDailyReport } from '@/hooks/use-report';
 import { useExpenseSummary } from '@/hooks/use-expenses';
-import ExportReportDialog from '@/components/reports/ExportReportDialog';
+import ExportRangeDialog from '@/components/reports/ExportRangeDialog';
+import { exportReportToExcel } from '@/lib/export-report';
 import type { RangePreset } from '@/services/expense.service';
 
 export default function Laporan() {
@@ -422,11 +423,23 @@ export default function Laporan() {
         </CardContent>
       </Card>
 
-      <ExportReportDialog
+      <ExportRangeDialog
         open={isExportOpen}
         onOpenChange={setIsExportOpen}
+        title="Ekspor Laporan"
+        description="Pilih rentang tanggal untuk mengunduh laporan dalam format Excel (.xlsx)."
         defaultStartMs={startMs}
         defaultEndMs={endMs}
+        onExport={async (start, end) => {
+          const result = await exportReportToExcel(start, end);
+          if (result.txCount === 0 && result.expenseCount === 0) {
+            return {
+              empty: true,
+              message: 'Tidak ada data transaksi atau pengeluaran pada rentang tanggal tersebut.',
+            };
+          }
+          return { message: `Berhasil mengekspor laporan (${result.txCount} transaksi).` };
+        }}
       />
     </div>
   );
