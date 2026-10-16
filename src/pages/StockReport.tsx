@@ -260,8 +260,13 @@ export default function StockReport() {
               <BarChart data={chartData}>
                 <XAxis dataKey="date" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
                 <YAxis hide />
+                {/*
+                 * Label seri diambil dari prop `name` pada <Bar>, bukan dari dataKey:
+                 * recharts mengirim `name || dataKey` (ChartUtils.js) ke formatter, jadi
+                 * mencocokkan `name === 'stockIn'` di sini selalu gagal dan kedua baris
+                 * tooltip akan berlabel "Keluar".
+                 */}
                 <Tooltip
-                  formatter={(v: number, name: string) => [v, name === 'stockIn' ? 'Masuk' : 'Keluar']}
                   contentStyle={{ fontSize: 12, borderRadius: 8 }}
                   labelStyle={{ fontSize: 10 }}
                 />
