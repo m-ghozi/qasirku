@@ -397,6 +397,29 @@ describe('transactionService normalisasi', () => {
     expect(tx.items).toHaveLength(1);
   });
 
+  it('payHold meneruskan keranjang final + diskon ke endpoint pay', async () => {
+    resolveData('put', {
+      id: 3,
+      receiptNumber: 'TX3',
+      subtotal: '30000',
+      total: '30000',
+      items: [{ id: 1, productId: 1, totalPrice: 30000 }],
+    });
+
+    const payload = {
+      paymentMethodId: 2,
+      paymentAmount: 50000,
+      change: 20000,
+      items: [{ productId: 1, quantity: 3 }],
+      discountType: 'percentage' as const,
+      discountValue: 10,
+    };
+    await transactionService.payHold(3, payload);
+
+    // Backend butuh items agar bisa menghitung ulang harga saat pelunasan.
+    expect(api.put).toHaveBeenCalledWith('/transactions/3/pay', payload);
+  });
+
   it('cancel → DELETE /transactions/:id', async () => {
     api.delete.mockResolvedValueOnce({});
     await transactionService.cancel(5);

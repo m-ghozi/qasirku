@@ -368,7 +368,17 @@ export default function Kasir() {
       payHold.mutate(
         {
           id: editingTxId,
-          payload: { paymentMethodId: Number(paymentMethodId), paymentAmount: paidAmount, change },
+          payload: {
+            paymentMethodId: Number(paymentMethodId),
+            paymentAmount: paidAmount,
+            change,
+            // Kirim keranjang final agar backend menghitung ulang harga dari DB.
+            // Tanpa ini, pelunasan memakai total yang tersimpan saat bill dibuat
+            // dan edit qty/harga tidak ikut tertagih.
+            items: buildItemsPayload(),
+            discountType: txDiscountType,
+            discountValue: Number(txDiscountValue) || 0,
+          },
         },
         {
           onSuccess: tx => {
