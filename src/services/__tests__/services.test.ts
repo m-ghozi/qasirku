@@ -177,10 +177,32 @@ describe('paymentMethodService', () => {
 });
 
 describe('productService', () => {
-  it('getAll → GET /products', async () => {
+  it('getAll mengambil seluruh halaman lalu menggabungkannya', async () => {
+    api.get
+      .mockResolvedValueOnce({
+        data: {
+          data: [{ id: 1, name: 'Kopi' }],
+          meta: { page: 1, limit: 100, total: 101, totalPages: 2 },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          data: [{ id: 2, name: 'Teh' }],
+          meta: { page: 2, limit: 100, total: 101, totalPages: 2 },
+        },
+      });
+
+    const res = await productService.getAll();
+
+    expect(api.get).toHaveBeenNthCalledWith(1, '/products', { params: { page: 1, limit: 100 } });
+    expect(api.get).toHaveBeenNthCalledWith(2, '/products', { params: { page: 2, limit: 100 } });
+    expect(res.map((p) => p.name)).toEqual(['Kopi', 'Teh']);
+  });
+
+  it('getAll hanya satu request saat hasilnya satu halaman', async () => {
     resolveData('get', [{ id: 1, name: 'Kopi' }]);
     const res = await productService.getAll();
-    expect(api.get).toHaveBeenCalledWith('/products');
+    expect(api.get).toHaveBeenCalledTimes(1);
     expect(res[0].name).toBe('Kopi');
   });
 
