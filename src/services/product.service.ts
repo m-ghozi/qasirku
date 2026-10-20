@@ -61,10 +61,31 @@ export interface ProductListParams {
   categoryId?: number;
 }
 
+// Backend membatasi `limit` ke MAX_LIMIT = 100 (lihat
+// qasirku-backend/src/utils/pagination.ts), jadi "seluruh produk" harus diambil
+// per halaman lalu digabung — bukan satu request yang diam-diam terpotong 20.
+const ALL_PRODUCTS_PAGE_SIZE = 100;
+
 export const productService = {
   getAll: async (): Promise<Product[]> => {
-    const { data } = await api.get('/products');
-    return data.data;
+    const fetchPage = async (page: number) => {
+      const { data } = await api.get('/products', {
+        params: { page, limit: ALL_PRODUCTS_PAGE_SIZE },
+      });
+      return { items: (data.data ?? []) as Product[], totalPages: data.meta?.totalPages ?? 1 };
+    };
+
+    // Halaman 1 wajib lebih dulu karena hanya responsnya yang membawa meta;
+    // sisanya diambil paralel supaya latensi tidak bertambah per halaman.
+    const first = await fetchPage(1);
+    const rest = await Promise.all(
+      Array.from({ length: Math.max(0, first.totalPages - 1) }, (_, i) => fetchPage(i + 2)),
+    );
+
+    // Produk bisa bertambah/berpindah antar-request saat halaman bergeser;
+    // dedupe by id supaya picker tidak merender baris kembar.
+    const items = [first, ...rest].flatMap((r) => r.items);
+    return Array.from(new Map(items.map((p) => [p.id, p])).values());
   },
 
   // Halaman produk untuk halaman kelola produk. `getAll` di atas tetap dipakai
