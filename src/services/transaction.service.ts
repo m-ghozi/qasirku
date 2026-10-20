@@ -94,6 +94,14 @@ export interface PayHoldPayload {
   paymentMethodId: number;
   paymentAmount: number;
   change: number;
+  /**
+   * Keranjang final saat open bill diedit. Bila dikirim, backend menghitung
+   * ulang harga/HPP dari DB dan memakai hasilnya sebagai total tagihan —
+   * memastikan yang dibayar sama dengan yang tampil di kasir.
+   */
+  items?: CreateTransactionItemPayload[];
+  discountType?: 'percentage' | 'nominal' | null;
+  discountValue?: number;
 }
 
 // ── Normalisasi helper ────────────────────────────────────────────────────────
