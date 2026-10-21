@@ -646,6 +646,7 @@ export default function Produk() {
                     value={price}
                     onChange={handlePriceChange}
                     placeholder="15.000"
+                    decimal
                     className="h-11"
                   />
                 </div>
@@ -655,6 +656,7 @@ export default function Produk() {
                     value={hpp}
                     onChange={handleHppChange}
                     placeholder="10.000"
+                    decimal
                     className="h-11"
                   />
                 </div>

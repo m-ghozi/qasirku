@@ -250,7 +250,7 @@ export default function StockInPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Jumlah *</Label>
-                <NumberInput value={quantity} onChange={setQuantity} placeholder="10" className="h-11" decimal />
+                <NumberInput value={quantity} onChange={setQuantity} placeholder="10" className="h-11" />
               </div>
               <div className="space-y-1.5">
                 <Label>Harga Beli/Unit *</Label>
