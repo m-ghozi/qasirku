@@ -23,6 +23,7 @@ import {
   useUsers,
   useCreateUser,
   useUpdateUser,
+  useUpdateUserRole,
   useDeleteUser,
 } from '@/hooks/use-users';
 import type { User } from '@/services/user.service';
@@ -42,6 +43,7 @@ export default function UsersPage() {
   const { data: users = [], isLoading } = useUsers();
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
+  const updateUserRole = useUpdateUserRole();
   const deleteUser = useDeleteUser();
 
   // ── Dialog: Add/Edit ─────────────────────────────────────────────────────
@@ -108,17 +110,34 @@ export default function UsersPage() {
     if (!name.trim()) { toast.error('Nama tidak boleh kosong'); return; }
 
     if (editing) {
-      // Edit: hanya nama + permissions
+      // Edit profil (nama) dan hak akses dikirim ke endpoint berbeda:
+      // `PUT /users/:id` sengaja mengabaikan role/permissions di backend,
+      // jadi perubahan akses harus lewat `PUT /users/:id/role`.
+      const nextPermissions = editing.role === 'owner' ? [] : permissions;
+      const permissionsChanged =
+        editing.role !== 'owner' &&
+        (nextPermissions.length !== editing.permissions.length ||
+          nextPermissions.some(p => !editing.permissions.includes(p)));
+
       updateUser.mutate(
         {
           id: editing.id,
-          payload: {
-            name: name.trim(),
-            permissions: editing.role === 'owner' ? [] : permissions,
-          },
+          payload: { name: name.trim() },
         },
         {
           onSuccess: async () => {
+            if (permissionsChanged) {
+              try {
+                await updateUserRole.mutateAsync({
+                  id: editing.id,
+                  payload: { role: editing.role, permissions: nextPermissions },
+                });
+              } catch {
+                // Toast error sudah ditampilkan hook; biarkan dialog terbuka
+                // supaya pengguna bisa mencoba lagi.
+                return;
+              }
+            }
             setDialogOpen(false);
             // Kalau edit diri sendiri, sinkronkan context auth
             if (currentUser?.id === editing.id) await refresh();
@@ -201,7 +220,7 @@ export default function UsersPage() {
     return a.name.localeCompare(b.name);
   });
 
-  const isMutating = createUser.isPending || updateUser.isPending;
+  const isMutating = createUser.isPending || updateUser.isPending || updateUserRole.isPending;
 
   // ── Render ────────────────────────────────────────────────────────────────
 

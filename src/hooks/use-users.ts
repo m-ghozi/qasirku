@@ -4,6 +4,7 @@ import {
   userService,
   type CreateUserPayload,
   type UpdateUserPayload,
+  type UpdateUserRolePayload,
 } from '@/services/user.service';
 
 // ── Query key ─────────────────────────────────────────────────────────────────
@@ -55,6 +56,25 @@ export function useUpdateUser() {
     },
     onError: (err: any) => {
       toast.error(err.response?.data?.message || 'Gagal memperbarui akun');
+    },
+  });
+}
+
+/**
+ * Ubah role/permissions lewat endpoint terpisah.
+ * Sengaja tanpa toast sukses agar pemanggil bisa menggabungkannya dengan
+ * update profil tanpa dua notifikasi.
+ */
+export function useUpdateUserRole() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: UpdateUserRolePayload }) =>
+      userService.updateRole(id, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: USER_KEY });
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.message || 'Gagal memperbarui hak akses');
     },
   });
 }

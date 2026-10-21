@@ -25,9 +25,17 @@ export interface CreateUserPayload {
 export interface UpdateUserPayload {
   name?: string;
   pin?: string;
-  role?: 'owner' | 'staff';
-  permissions?: PermissionKey[];
   isActive?: boolean;
+}
+
+/**
+ * Perubahan otorisasi dikirim lewat endpoint terpisah (`PUT /users/:id/role`).
+ * Backend sengaja mengabaikan role/permissions di endpoint update profil agar
+ * tidak bisa di-mass-assign.
+ */
+export interface UpdateUserRolePayload {
+  role: 'owner' | 'staff';
+  permissions?: PermissionKey[];
 }
 
 // ── Service ───────────────────────────────────────────────────────────────────
@@ -62,6 +70,11 @@ export const userService = {
 
   update: async (id: number, payload: UpdateUserPayload): Promise<User> => {
     const { data } = await api.put(`/users/${id}`, payload);
+    return data.data;
+  },
+
+  updateRole: async (id: number, payload: UpdateUserRolePayload): Promise<User> => {
+    const { data } = await api.put(`/users/${id}/role`, payload);
     return data.data;
   },
 
