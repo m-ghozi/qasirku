@@ -195,4 +195,16 @@ Jika Anda menemukan bug atau ingin berkontribusi dalam pengembangan aplikasi Qas
 
 ---
 
-Built dengan ❤️ untuk kemajuan UMKM Indonesia.
+## Credits
+
+This project is based on [kasirgratisan](https://github.com/jipraks/kasirgratisan). by [jipraks](https://github.com/jipraks),
+licensed under the MIT License.
+
+This version has been substantially modified, including:
+- migration from client-side/local storage to a server-based architecture
+- backend/API implementation
+- database integration
+- UI/UX modifications
+- additional features and deployment changes
+
+See LICENSE for license information.
